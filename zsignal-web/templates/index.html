@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>zsignal</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/bulma.min.css') }}">
+  <style>
+    .zsignal-mono { font-family: "Courier New", monospace; white-space: pre; overflow-x: auto; }
+    .tab-panel { display: none; }
+    .tab-panel.is-active { display: block; }
+    #sent-log, #listen-log { max-height: 50vh; overflow-y: auto; }
+  </style>
+</head>
+<body>
+<section class="section">
+  <div class="container">
+    <div class="tabs is-boxed" id="tabs">
+      <ul>
+        <li class="is-active" data-tab="send"><a>Send</a></li>
+        <li data-tab="listen"><a>Listen</a></li>
+        <li data-tab="settings"><a>Settings</a></li>
+      </ul>
+    </div>
+
+    <div class="tab-panel is-active" id="panel-send">
+      <h1 class="title">Z Signal - Transmit</h1>
+      <div class="field">
+        <div class="control">
+          <textarea class="textarea" id="send-text" rows="20" placeholder="Message to transmit..."></textarea>
+        </div>
+      </div>
+      <div class="field">
+        <div class="control">
+          <button class="button is-primary" id="send-btn">Send</button>
+        </div>
+      </div>
+      <h2 class="subtitle">Sent log</h2>
+      <div class="box zsignal-mono" id="sent-log"></div>
+    </div>
+
+    <div class="tab-panel" id="panel-listen">
+      <h1 class="title">Z Signal - Observe</h1>
+      <div class="field">
+        <div class="control">
+          <button class="button is-primary" id="listen-btn" data-listening="false">Listen</button>
+        </div>
+      </div>
+      <h2 class="subtitle">Received log</h2>
+      <div class="box zsignal-mono" id="listen-log"></div>
+    </div>
+
+    <div class="tab-panel" id="panel-settings">
+      <h1 class="title">Settings</h1>
+      <div class="field">
+        <label class="label">Audio device (ALSA -D, e.g. plughw:CARD=Device,DEV=0 -- leave blank on Windows)</label>
+        <div class="control">
+          <input class="input" id="set-device" type="text">
+        </div>
+      </div>
+      <div class="field">
+        <label class="label">PTT serial port (COM3, /dev/ttyUSB0, ...) -- leave blank to use a GPIO pin instead</label>
+        <div class="control">
+          <input class="input" id="set-ptt-serial" type="text">
+        </div>
+      </div>
+      <div class="field">
+        <label class="label">PTT GPIO pin (used only if serial port above is blank)</label>
+        <div class="control">
+          <input class="input" id="set-ptt-pin" type="number">
+        </div>
+      </div>
+      <div class="field">
+        <label class="label">PTT lead delay (seconds, before audio starts)</label>
+        <div class="control">
+          <input class="input" id="set-ptt-delay" type="number" step="0.1">
+        </div>
+      </div>
+      <div class="field">
+        <label class="label">PTT tail delay (seconds, after audio ends)</label>
+        <div class="control">
+          <input class="input" id="set-ptt-tail-delay" type="number" step="0.1">
+        </div>
+      </div>
+      <div class="field">
+        <div class="control">
+          <button class="button is-primary" id="save-settings-btn">Save</button>
+        </div>
+      </div>
+      <p id="settings-saved" class="has-text-success" style="display:none;">Saved.</p>
+    </div>
+
+  </div>
+</section>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

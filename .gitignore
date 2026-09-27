@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+
+# Local machine-specific runtime config (COM ports, ALSA device names, etc.)
+zsignal-web/settings.json
