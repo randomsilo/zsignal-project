@@ -74,6 +74,9 @@ Each data chord = 1 byte = 2 hex digits. A preamble (TBD — likely a short know
 
 ## Hardware Test Setup
 
+See `HARDWARE.md` for the full parts list (with links) and a diagram of the
+signal path — current setup and the abandoned Orange Pi one.
+
 ### Current: Xubuntu on an ASUS Chromebook (C223NA)
 
 The Orange Pi Zero 3 (below) was abandoned as the field/portable box after its
