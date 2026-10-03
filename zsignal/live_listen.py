@@ -6,6 +6,7 @@ decoding each as it completes. Used by zsignal-web's Listen tab.
 """
 
 import array
+import collections
 import queue
 import threading
 import time
@@ -17,6 +18,18 @@ GAP_SECONDS = 1.0
 NOISE_PROBE_SECONDS = 0.5
 SIGNAL_RATIO = 4.0  # a chunk counts as "signal" once RMS exceeds noise_floor * this
 CHUNK_MS = 100
+# The noise floor keeps tracking quiet chunks after calibration, so a bad
+# initial probe (e.g. a sound-card pop at boot) corrects itself in seconds.
+NOISE_TRACK_WEIGHT = 0.05
+# A "segment" longer than this means the noise floor is wrong (too low) --
+# decode what we have and recalibrate rather than buffer forever.
+MAX_SEGMENT_SECONDS = 30.0
+# Inside a segment, a chunk below this fraction of the segment's peak RMS counts as quiet.
+END_RATIO = 0.25
+# Quiet audio kept in front of each segment. decoder.find_onset() measures its
+# noise floor from the first 300 ms, so a segment that starts mid-signal never
+# finds the preamble.
+PREROLL_SECONDS = 0.5
 
 
 def _pcm16_bytes_to_floats(raw):
@@ -44,6 +57,10 @@ class LiveListener:
         self.gap_seconds = gap_seconds
         self.chunk_ms = chunk_ms
         self.events = queue.Queue()
+        # Live diagnostics, readable from other threads: current noise floor and
+        # the loudest chunk RMS since the caller last reset peak_level.
+        self.noise_floor = None
+        self.peak_level = 0.0
         self._proc = None
         self._thread = None
         self._stop = threading.Event()
@@ -66,9 +83,12 @@ class LiveListener:
         bytes_per_chunk = chunk_samples * 2  # mono 16-bit
         noise_probe_chunks = max(1, int(NOISE_PROBE_SECONDS * 1000 / self.chunk_ms))
         gap_chunks_needed = max(1, int(self.gap_seconds * 1000 / self.chunk_ms))
+        preroll = collections.deque(maxlen=max(1, int(PREROLL_SECONDS * 1000 / self.chunk_ms)))
 
         segment = []
+        segment_peak = 0.0
         silence_run = 0
+        gap_levels = []
         noise_floor = None
         calibration = []
 
@@ -80,6 +100,8 @@ class LiveListener:
                     break
                 floats = _pcm16_bytes_to_floats(raw)
                 level = _rms(floats)
+                self.noise_floor = noise_floor
+                self.peak_level = max(self.peak_level, level)
 
                 if noise_floor is None:
                     calibration.append(level)
@@ -87,19 +109,44 @@ class LiveListener:
                         noise_floor = sorted(calibration)[len(calibration) // 2]
                     continue
 
-                is_signal = level > max(noise_floor * SIGNAL_RATIO, 1e-6)
+                threshold = max(noise_floor * SIGNAL_RATIO, 1e-6)
+                if segment:
+                    # Hysteresis: a transmission is over once the level falls well
+                    # below its own peak, even if the background afterwards is
+                    # louder than the floor we started with (e.g. a sound card's
+                    # output stage hissing once it has been woken by playback).
+                    threshold = max(threshold, segment_peak * END_RATIO)
+                is_signal = level > threshold
 
                 if is_signal:
+                    if not segment:
+                        for quiet in preroll:
+                            segment.extend(quiet)
+                        preroll.clear()
+                        segment_peak = 0.0
                     segment.extend(floats)
+                    segment_peak = max(segment_peak, level)
                     silence_run = 0
+                    gap_levels = []
+                    if len(segment) > MAX_SEGMENT_SECONDS * self.sample_rate:
+                        self._finish_segment(segment)
+                        segment = []
+                        noise_floor = None
+                        calibration = []
                 elif segment:
                     segment.extend(floats)  # keep trailing silence as decode margin
                     silence_run += 1
+                    gap_levels.append(level)
                     if silence_run >= gap_chunks_needed:
                         self._finish_segment(segment)
                         segment = []
                         silence_run = 0
-                # else: no transmission in progress yet -- discard silence
+                        # Re-baseline on the quiet that followed this transmission.
+                        noise_floor = sorted(gap_levels)[len(gap_levels) // 2]
+                        gap_levels = []
+                else:
+                    preroll.append(floats)  # no transmission yet -- keep only the recent pre-roll
+                    noise_floor += (level - noise_floor) * NOISE_TRACK_WEIGHT
         finally:
             if segment:
                 self._finish_segment(segment)

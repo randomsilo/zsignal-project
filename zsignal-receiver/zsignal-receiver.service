@@ -1,0 +1,21 @@
+[Unit]
+Description=zsignal receiver (sound card -> relay GPIO)
+After=sound.target alsa-restore.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/zsignal/zsignal-receiver
+Environment=PYTHONPATH=/opt/zsignal
+Environment=PYTHONUNBUFFERED=1
+# Mixer levels for the USB sound card ("-" = don't fail if the card isn't up yet;
+# the service exits and Restart= retries until it is).
+ExecStartPre=-/usr/bin/amixer -q -c Device sset Speaker 50%
+ExecStartPre=-/usr/bin/amixer -q -c Device sset Mic 70% cap
+# Add --debug to log the audio noise floor / peak level every 5s.
+ExecStart=/usr/bin/python3 -m zsignal_receiver.service
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
