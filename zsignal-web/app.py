@@ -101,4 +101,8 @@ def api_listen_log():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5055, debug=True)
+    # Local-only by default. ZSIGNAL_WEB_HOST=0.0.0.0 exposes it on the LAN; the
+    # Werkzeug debugger allows remote code execution, so debug stays off then.
+    host = os.environ.get("ZSIGNAL_WEB_HOST", "127.0.0.1")
+    port = int(os.environ.get("ZSIGNAL_WEB_PORT", "5055"))
+    app.run(host=host, port=port, debug=host in ("127.0.0.1", "localhost"))

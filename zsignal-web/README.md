@@ -17,6 +17,19 @@ python app.py
 
 Then open `http://127.0.0.1:5055/`.
 
+By default it only listens on the machine itself. To open it from another
+computer on the LAN, start it like this:
+
+```
+ZSIGNAL_WEB_HOST=0.0.0.0 python3 app.py
+```
+
+Then browse to `http://<machine-ip>:5055/` (for example
+`http://192.168.1.44:5055/`). Flask's debug mode is switched off
+automatically in this mode, because its debugger would let anyone on the
+network run code on the machine. If it still doesn't load, check the
+firewall: `sudo ufw allow 5055/tcp`. `ZSIGNAL_WEB_PORT` changes the port.
+
 ## Settings
 
 Set the audio device and PTT method (serial port for a Digirig-style USB
