@@ -20,8 +20,14 @@ class SerialPTT:
         self._ser = None
 
     def __enter__(self):
-        self._ser = serial.Serial(self.port, baudrate=self.baudrate)
+        # pyserial asserts RTS/DTR on open by default, which would briefly
+        # key the radio; set them low before opening so PTT never glitches.
+        self._ser = serial.Serial()
+        self._ser.port = self.port
+        self._ser.baudrate = self.baudrate
         self._ser.rts = False
+        self._ser.dtr = False
+        self._ser.open()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
