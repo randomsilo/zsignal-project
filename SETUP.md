@@ -75,6 +75,40 @@ amixer -c N sset 'Speaker' 50%
 amixer -c N sset 'Mic' 70%
 ```
 
+### Digirig: copy-paste setup
+
+The Digirig's sound card is named `Device`, so these work without looking up
+the card number. Values below are what decoded cleanly over a real FM link;
+the mic input at max (+23 dB) clipped badly, and Auto Gain Control shifts
+levels mid-transmission.
+
+```bash
+# Serial PTT access (/dev/ttyUSB0 is root:dialout) -- log out and back in after
+sudo usermod -aG dialout $USER
+
+# Receive: AGC off, mic capture at 0 dB (range 0-35; 12 = 0 dB, 2 = -10 dB)
+amixer -c Device cset name='Auto Gain Control' off
+amixer -c Device cset name='Mic Capture Volume' 12
+
+# Transmit: speaker level (range 0-37; 14 = -23 dB)
+amixer -c Device cset name='Speaker Playback Volume' 14
+
+# Persist mixer settings across reboots
+sudo alsactl store
+```
+
+Verify:
+
+```bash
+groups | grep -w dialout
+ls -l /dev/serial/by-id/
+amixer -c Device contents | grep -A2 -E "Auto Gain|Mic Capture Volume|Speaker Playback Volume"
+```
+
+In the zsignal-web settings, use audio device `plughw:CARD=Device,DEV=0` and
+PTT serial port `/dev/ttyUSB0` -- both are the same on every machine with one
+Digirig plugged in.
+
 ## 4. Deploy the zsignal package (from the client)
 
 ```bash
