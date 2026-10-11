@@ -94,10 +94,23 @@ def api_listen_log():
     if listener is not None:
         while True:
             try:
-                listen_log.append(listener.events.get_nowait())
+                event = listener.events.get_nowait()
             except queue.Empty:
                 break
+            if event.get("ok"):
+                event["result"].pop("bytes", None)  # not JSON-serializable; hex carries the same data
+            listen_log.append(event)
     return jsonify(listen_log)
+
+
+@app.route("/api/listen/levels")
+def api_listen_levels():
+    """Current noise floor and peak chunk RMS (0..1 full scale) since the last call."""
+    if listener is None:
+        return jsonify({"error": "not listening"}), 400
+    peak = listener.peak_level
+    listener.peak_level = 0.0
+    return jsonify({"noise_floor": listener.noise_floor, "peak": peak})
 
 
 if __name__ == "__main__":
