@@ -116,7 +116,10 @@ def classify_chord(levels, on_ratio=0.5):
     if flag_a and flag_b and not any(data_on) and not any(inv_on):
         return ChordKind.SPACER, None, []
 
-    if not flag_a and not flag_b:
+    # Any bit/inverse tone on means DATA whatever the flags say: preamble and
+    # spacer chords have none on, and intermodulation from a data chord's ten
+    # tones can push a flag tone over the threshold on a real radio link.
+    if any(data_on) or any(inv_on):
         byte_val = 0
         corrupted = []
         for idx, i in enumerate(BIT_INDEXES):

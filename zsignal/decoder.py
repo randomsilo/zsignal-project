@@ -13,6 +13,10 @@ PREAMBLE_CONTRAST = 5.0
 ONSET_THRESHOLD_MULT = 6.0
 COARSE_HOP_MS = 5
 FINE_STEP_MS = 1
+EDGE_FOLD_CHORDS = 4    # chords of envelope folded together to find the chord-edge phase
+# The folded envelope's minimum must be below this fraction of its mean to
+# trust it as a chord edge; otherwise fall back to the sync-score search.
+EDGE_DIP_RATIO = 0.6
 EDGE_GUARD_FRAC = 0.15  # fraction of chord skipped at each edge before Goertzel scoring
 
 
@@ -83,6 +87,31 @@ class DecodeError(Exception):
     pass
 
 
+def _chord_edge(samples, start, chord_n, step):
+    """First chord boundary at or after `start`, found from the amplitude dip
+    the synthesizer's RAMP_MS fade puts at every chord edge.
+
+    Needed because the preamble repeats one chord: the sync score is the same
+    at every offset inside it, so maximizing that alone lands at an arbitrary
+    phase and the data windows straddle two chords. Folding the envelope of
+    several chords modulo the chord length shows the edges as one sharp dip.
+    Returns None if no clear dip (e.g. too little audio after `start`).
+    """
+    bins = chord_n // step
+    end = start + EDGE_FOLD_CHORDS * chord_n
+    if bins < 2 or end > len(samples):
+        return None
+    fold = [0.0] * bins
+    for k, a in enumerate(range(start, end - step + 1, step)):
+        block = samples[a:a + step]
+        fold[k % bins] += sum(x * x for x in block)
+    mean = sum(fold) / bins
+    lo = min(range(bins), key=lambda b: fold[b])
+    if mean <= 0 or fold[lo] > mean * EDGE_DIP_RATIO:
+        return None
+    return start + lo * step + step // 2
+
+
 def find_onset(samples, sample_rate, chord_ms=30):
     """Locate the sample index of the first preamble chord boundary."""
     chord_n = _chord_samples(sample_rate, chord_ms)
@@ -110,6 +139,10 @@ def find_onset(samples, sample_rate, chord_ms=30):
         return None
 
     fine_step = max(1, int(sample_rate * FINE_STEP_MS / 1000.0))
+    edge = _chord_edge(samples, coarse_hit, chord_n, fine_step)
+    if edge is not None:
+        return edge
+
     search_start = max(0, coarse_hit - hop)
     search_end = min(len(samples) - chord_n, coarse_hit + chord_n)
 
