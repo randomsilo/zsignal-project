@@ -41,7 +41,8 @@ def index():
 def api_settings():
     global settings
     if request.method == "POST":
-        settings.update(request.get_json(force=True) or {})
+        incoming = request.get_json(force=True) or {}
+        settings.update({k: v.strip() if isinstance(v, str) else v for k, v in incoming.items()})
         settings_store.save(settings)
     return jsonify(settings)
 
