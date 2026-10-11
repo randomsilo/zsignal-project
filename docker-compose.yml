@@ -1,0 +1,38 @@
+# Each host only runs the service it needs:
+#   Chromebook (Digirig + radio):  docker compose up -d zsignal-web
+#   Orange Pi (relay board):       docker compose up -d zsignal-receiver
+#
+# Device paths below are examples -- edit to match your box (`aplay -l` /
+# `arecord -l` for the sound card, `ls /dev/ttyUSB*` or `/dev/serial/by-id/`
+# for the Digirig's serial port). See SETUP.md.
+services:
+  zsignal-web:
+    build:
+      context: .
+      dockerfile: zsignal-web/Dockerfile
+    image: zsignal-web:latest
+    restart: unless-stopped
+    ports:
+      - "5055:5055"
+    devices:
+      - /dev/snd
+      - /dev/ttyUSB0
+    volumes:
+      - zsignal-web-data:/data
+
+  zsignal-receiver:
+    build:
+      context: .
+      dockerfile: zsignal-receiver/Dockerfile
+    image: zsignal-receiver:latest
+    restart: unless-stopped
+    # Full device access is required for sysfs GPIO export
+    # (/sys/class/gpio/export) to work reliably from inside a container.
+    # This is a dedicated appliance board, so the loss of container
+    # isolation is an accepted trade-off, not an oversight.
+    privileged: true
+    devices:
+      - /dev/snd
+
+volumes:
+  zsignal-web-data:

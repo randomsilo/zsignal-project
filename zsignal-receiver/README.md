@@ -60,9 +60,9 @@ does this conversion.
 
 ```
 zsignal-receiver/
-  deploy.ps1                   copy zsignal/ + zsignal-receiver/ to the device
-  install.sh                   install/enable/restart the systemd service (on the device)
-  zsignal-receiver.service     systemd unit: sets mixer levels, runs service.py, restarts on failure
+  deploy.ps1                   copy zsignal/ + zsignal-receiver/ to the device, then docker compose build/up
+  Dockerfile                   image: python3 + alsa-utils + pyserial + this package
+  entrypoint.sh                sets mixer levels, then runs service.py (or an overridden command)
   loopback_test.sh             end-to-end test over a 3.5mm loopback cable
   zsignal_receiver/
     relays.py                  Relay class (pin-name -> sysfs, on/off/pulse, active-low option)
@@ -70,12 +70,19 @@ zsignal-receiver/
     service.py                 listener: decode zsignals -> relay on for N seconds
 ```
 
+The container needs `privileged: true` (see `../docker-compose.yml`) --
+`relays.py`/`gpio.py` write directly to `/sys/class/gpio`, which otherwise
+isn't reliably writable from inside a container.
+
 On the device everything lives in `/opt/zsignal`:
 
 ```
 /opt/zsignal/zsignal/            the codec package (shared with the sender)
 /opt/zsignal/zsignal-receiver/   this directory
 ```
+
+Requires Docker on the device first -- run `./setup.sh` (repo root) there,
+or `--fix` to have it install things for you.
 
 ## 1. Deploy (from Windows)
 
@@ -85,27 +92,28 @@ From the `zsignal-project` folder:
 .\zsignal-receiver\deploy.ps1
 ```
 
-Run it again after every local edit. It's a plain file copy with no build
-step.
+Run it again after every local edit. It copies the files, then runs
+`docker compose build zsignal-receiver && docker compose up -d
+zsignal-receiver` on the device. Pass `-SkipUp` to only copy files without
+rebuilding/restarting.
 
 ## 2. Test the GPIO pins (on the device)
 
 ```bash
 ssh root@192.168.1.199
-cd /opt/zsignal/zsignal-receiver
-export PYTHONPATH=/opt/zsignal
+cd /opt/zsignal
 
-python3 -m zsignal_receiver.gpio_test                 # relay1 then relay2, 2 s each
-python3 -m zsignal_receiver.gpio_test --pin PH7 -s 5  # just one pin, 5 s
-python3 -m zsignal_receiver.gpio_test --cycles 5      # repeat to check reliability
-python3 -m zsignal_receiver.gpio_test --together -s 10  # both relays on at once
-python3 -m zsignal_receiver.gpio_test --off           # force everything off
+docker compose run --rm zsignal-receiver python3 -m zsignal_receiver.gpio_test                 # relay1 then relay2, 2 s each
+docker compose run --rm zsignal-receiver python3 -m zsignal_receiver.gpio_test --pin PH7 -s 5  # just one pin, 5 s
+docker compose run --rm zsignal-receiver python3 -m zsignal_receiver.gpio_test --cycles 5      # repeat to check reliability
+docker compose run --rm zsignal-receiver python3 -m zsignal_receiver.gpio_test --together -s 10  # both relays on at once
+docker compose run --rm zsignal-receiver python3 -m zsignal_receiver.gpio_test --off           # force everything off
 ```
 
 Or run it from Windows in one line:
 
 ```powershell
-ssh root@192.168.1.199 "cd /opt/zsignal/zsignal-receiver && PYTHONPATH=/opt/zsignal python3 -m zsignal_receiver.gpio_test"
+ssh root@192.168.1.199 "cd /opt/zsignal && docker compose run --rm zsignal-receiver python3 -m zsignal_receiver.gpio_test"
 ```
 
 **What you should see:** each relay clicks and its green LED lights for
@@ -143,48 +151,44 @@ amixer -c Device sset Speaker 50%
 amixer -c Device sset Mic 70% cap
 ```
 
-Then run the test. It starts its own copy of the listener (pausing the
-installed service while it runs), sends `1:5` and then `2:5`, and prints the
-log:
+Then run the test. It starts its own copy of the listener (stop the running
+`zsignal-receiver` container first so they don't fight over the sound card),
+sends `1:5` and then `2:5`, and prints the log:
 
 ```bash
-bash /opt/zsignal/zsignal-receiver/loopback_test.sh            # default 1:5 then 2:5
-bash /opt/zsignal/zsignal-receiver/loopback_test.sh "2:3" "1:1"
+cd /opt/zsignal
+docker compose stop zsignal-receiver
+docker compose run --rm --entrypoint bash zsignal-receiver loopback_test.sh            # default 1:5 then 2:5
+docker compose run --rm --entrypoint bash zsignal-receiver loopback_test.sh "2:3" "1:1"
+docker compose up -d zsignal-receiver
 ```
 
 **Verified 2026-10-03:** both commands were received, and each relay turned
-on for 5 s and then off.
+on for 5 s and then off. (Verified pre-Docker, over the native systemd
+service that this container replaced -- re-verify after moving to Docker.)
 
-## 4. Boot service (on the device)
+## 4. Boot container (on the device)
 
-Install or refresh the service after deploying. Re-run this after any change
-to `zsignal-receiver.service`:
-
-```bash
-bash /opt/zsignal/zsignal-receiver/install.sh
-```
-
-After a code-only change, deploy and then restart:
-
-```powershell
-.\zsignal-receiver\deploy.ps1; ssh root@192.168.1.199 "systemctl restart zsignal-receiver"
-```
+`docker compose up -d zsignal-receiver` (what `deploy.ps1` runs for you)
+builds the image if needed and starts the container with `restart:
+unless-stopped` -- it comes back on its own after a reboot or a crash, same
+as the old systemd unit did, with no separate install/enable step.
 
 Day-to-day commands:
 
 ```bash
-systemctl status zsignal-receiver          # running?
-journalctl -u zsignal-receiver -f          # live log: received commands, relay ON/OFF
-journalctl -u zsignal-receiver -b          # everything since the last boot
-systemctl stop zsignal-receiver            # stop (all relays turn OFF)
-systemctl disable zsignal-receiver         # don't start at boot any more
+cd /opt/zsignal
+docker compose ps zsignal-receiver                 # running?
+docker compose logs -f zsignal-receiver             # live log: received commands, relay ON/OFF
+docker compose stop zsignal-receiver                # stop (all relays turn OFF)
+docker compose restart zsignal-receiver             # after a code-only change (run deploy.ps1 first to sync files)
 ```
 
 The service waits for ALSA to come up, sets the mixer levels, and restarts
 5 s after any failure (for example if the USB sound card isn't ready yet).
-To log the audio noise floor and peak level every 5 s, add `--debug` to
-`ExecStart` in the unit. This is useful when setting the levels for a
-radio.
+To log the audio noise floor and peak level every 5 s, add `--debug` by
+overriding the compose service's `command:` (or editing `entrypoint.sh`).
+This is useful when setting the levels for a radio.
 
 **Verified 2026-10-03:** after a reboot, the service started on its own and
 acted on `1:3`, `2:3` and `1:2`.

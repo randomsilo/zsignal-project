@@ -3,7 +3,8 @@
 import json
 import os
 
-PATH = os.path.join(os.path.dirname(__file__), "settings.json")
+DATA_DIR = os.environ.get("ZSIGNAL_WEB_DATA_DIR", os.path.dirname(__file__))
+PATH = os.path.join(DATA_DIR, "settings.json")
 
 DEFAULTS = {
     "device": "",
@@ -11,6 +12,9 @@ DEFAULTS = {
     "ptt_pin": None,
     "ptt_delay": 0.5,
     "ptt_tail_delay": 0.5,
+    "station_sender": "",
+    "station_receiver": "",
+    "volleyball_station": "",
 }
 
 

@@ -80,6 +80,11 @@ def api_listen_start():
     return jsonify({"status": "listening"})
 
 
+@app.route("/api/listen/status")
+def api_listen_status():
+    return jsonify({"listening": listener is not None})
+
+
 @app.route("/api/listen/stop", methods=["POST"])
 def api_listen_stop():
     global listener

@@ -8,6 +8,15 @@ numbered sections in order the first time you set up a box; skip to
 whichever section you need on subsequent visits. See `SSH.md` first if
 you're doing this over a remote session rather than at the keyboard.
 
+**zsignal-web and zsignal-receiver now run in Docker** (see
+`../docker-compose.yml` and each project's README) rather than via a venv +
+systemd unit. Run `../setup.sh` (optionally `--fix`) to check for and
+install Docker plus the dependencies below in one pass. The ALSA
+card-finding and mixer-tuning steps in sections 3 and the Troubleshooting
+section at the end are still needed either way — Docker doesn't change how
+the sound card itself is identified or leveled, only how the Python code
+that uses it is run.
+
 ## 1. System check (on the device)
 
 Confirm architecture, OS, and Python version — zsignal's codec is pure
@@ -110,6 +119,10 @@ PTT serial port `/dev/ttyUSB0` -- both are the same on every machine with one
 Digirig plugged in.
 
 ## 4. Deploy the zsignal package (from the client)
+
+For the Orange Pi, `zsignal-receiver/deploy.ps1` does this plus the Docker
+build/restart in one step. To just sync the codec by hand (e.g. onto the
+Chromebook, or for the native round-trip checks in step 5 below):
 
 ```bash
 scp -r zsignal <user>@<device-ip>:/path/to/zsignal/

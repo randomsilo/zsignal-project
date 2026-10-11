@@ -1,20 +1,15 @@
 #!/bin/bash
 # End-to-end bench test over a 3.5mm loopback cable (speaker out -> mic in):
 # start the receiver service, send "1:5" then "2:5", show the service log.
-#   bash /opt/zsignal/zsignal-receiver/loopback_test.sh ["1:5" "2:5" ...]
+# Run via `docker compose run --rm --entrypoint bash zsignal-receiver
+# loopback_test.sh` after `docker compose stop zsignal-receiver` (see
+# README.md) -- PYTHONPATH and the working directory are already set by
+# the image, so this only needs to run inside that container, not on the
+# bare host.
 DEV="plughw:CARD=Device,DEV=0"
 LOG=/tmp/zsignal-receiver-test.log
-export PYTHONPATH=/opt/zsignal
-cd /opt/zsignal/zsignal-receiver
 
 [ $# -eq 0 ] && set -- "1:5" "2:5"
-
-# The installed service holds the capture device; pause it for the test.
-if systemctl is-active --quiet zsignal-receiver; then
-    echo "(stopping zsignal-receiver service for the test; restarting it afterwards)"
-    systemctl stop zsignal-receiver
-    trap 'systemctl start zsignal-receiver' EXIT
-fi
 
 python3 -u -m zsignal_receiver.service -D "$DEV" > "$LOG" 2>&1 &
 SVC=$!

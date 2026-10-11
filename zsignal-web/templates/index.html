@@ -9,6 +9,10 @@
     .tab-panel { display: none; }
     .tab-panel.is-active { display: block; }
     #sent-log, #listen-log { max-height: 50vh; overflow-y: auto; }
+    .tone-ok { color: #257942; }
+    .tone-bad { color: #cc3333; font-weight: bold; }
+    .log-table-wrap { max-height: 50vh; overflow-y: auto; }
+    .station-input { text-transform: uppercase; }
   </style>
 </head>
 <body>
@@ -16,13 +20,104 @@
   <div class="container">
     <div class="tabs is-boxed" id="tabs">
       <ul>
-        <li class="is-active" data-tab="send"><a>Send</a></li>
+        <li class="is-active" data-tab="stationcoms"><a>Station COMS</a></li>
+        <li data-tab="volleyball"><a>Volleyball</a></li>
+        <li data-tab="send"><a>Send</a></li>
         <li data-tab="listen"><a>Listen</a></li>
         <li data-tab="settings"><a>Settings</a></li>
       </ul>
     </div>
 
-    <div class="tab-panel is-active" id="panel-send">
+    <div class="tab-panel is-active" id="panel-stationcoms">
+      <h1 class="title">Station COMS</h1>
+
+      <div class="box">
+        <h2 class="subtitle">Transmit</h2>
+        <div class="field is-horizontal">
+          <div class="field-body">
+            <div class="field">
+              <label class="label">Sender</label>
+              <div class="control">
+                <input class="input station-input" id="sc-sender" type="text" placeholder="KJ5EHZ">
+              </div>
+            </div>
+            <div class="field">
+              <label class="label">Receiver</label>
+              <div class="control">
+                <input class="input station-input" id="sc-receiver" type="text" placeholder="KJ5EHZ or CQ">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">Message</label>
+          <div class="control">
+            <textarea class="textarea" id="sc-message" rows="4" placeholder="Message to transmit..."></textarea>
+          </div>
+        </div>
+        <div class="field">
+          <div class="control">
+            <button class="button is-primary" id="sc-transmit-btn">Transmit</button>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="subtitle">Log</h2>
+      <div class="field is-grouped">
+        <div class="control">
+          <button class="button is-primary" id="sc-listen-btn" data-listening="false">Listen</button>
+        </div>
+        <div class="control">
+          <button class="button" id="sc-clear-btn">Clear Log</button>
+        </div>
+      </div>
+      <div class="box log-table-wrap">
+        <table class="table is-fullwidth is-striped">
+          <thead><tr><th>Time</th><th>Sender</th><th>Receiver</th><th>Message</th></tr></thead>
+          <tbody id="sc-log-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="panel-volleyball">
+      <h1 class="title">Volleyball</h1>
+      <p class="mb-4">Bounces a fixed message back and forth with another station to test radio link reliability.</p>
+
+      <div class="box">
+        <div class="field">
+          <label class="label">Station</label>
+          <div class="control">
+            <input class="input station-input" id="vb-station" type="text" placeholder="KJ5EHZ">
+          </div>
+        </div>
+        <div class="field is-grouped">
+          <div class="control">
+            <button class="button is-primary" id="vb-start-btn">Start</button>
+          </div>
+          <div class="control">
+            <button class="button is-danger" id="vb-stop-btn">Stop</button>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="subtitle">Log</h2>
+      <div class="field is-grouped">
+        <div class="control">
+          <button class="button is-primary" id="vb-listen-btn" data-listening="false">Listen</button>
+        </div>
+        <div class="control">
+          <button class="button" id="vb-clear-btn">Clear Log</button>
+        </div>
+      </div>
+      <div class="box log-table-wrap">
+        <table class="table is-fullwidth is-striped">
+          <thead><tr><th>Time</th><th>Sender</th><th>Receiver</th><th>Message</th></tr></thead>
+          <tbody id="vb-log-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="panel-send">
       <h1 class="title">Z Signal - Transmit</h1>
       <div class="field">
         <div class="control">
