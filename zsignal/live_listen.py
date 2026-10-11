@@ -7,6 +7,7 @@ decoding each as it completes. Used by zsignal-web's Listen tab.
 
 import array
 import collections
+import os
 import queue
 import threading
 import time
@@ -30,6 +31,8 @@ END_RATIO = 0.25
 # noise floor from the first 300 ms, so a segment that starts mid-signal never
 # finds the preamble.
 PREROLL_SECONDS = 0.5
+# If set, every segment is also written here as a WAV for offline analysis.
+DUMP_DIR = os.environ.get("ZSIGNAL_DUMP_DIR")
 
 
 def _pcm16_bytes_to_floats(raw):
@@ -152,6 +155,10 @@ class LiveListener:
                 self._finish_segment(segment)
 
     def _finish_segment(self, segment):
+        if DUMP_DIR:
+            os.makedirs(DUMP_DIR, exist_ok=True)
+            audio_mod.write_wav(os.path.join(DUMP_DIR, "segment-%d.wav" % time.time()),
+                                segment, self.sample_rate)
         try:
             result = decode_samples(segment, self.sample_rate, chord_ms=self.chord_ms)
             self.events.put({"ok": True, "result": result, "ts": time.time()})

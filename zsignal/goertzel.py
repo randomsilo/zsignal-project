@@ -7,8 +7,10 @@ def goertzel_mag(samples, sample_rate, freq):
     n = len(samples)
     if n == 0:
         return 0.0
-    k = int(0.5 + (n * freq) / sample_rate)
-    omega = (2.0 * math.pi * k) / n
+    # Evaluate at the exact frequency rather than the nearest DFT bin: with a
+    # ~1000-sample window the bins are ~48 Hz apart, and a tone halfway between
+    # two (e.g. 1500 Hz) would otherwise read at ~0.6 of its true magnitude.
+    omega = 2.0 * math.pi * freq / sample_rate
     cos_w = math.cos(omega)
     sin_w = math.sin(omega)
     coeff = 2.0 * cos_w

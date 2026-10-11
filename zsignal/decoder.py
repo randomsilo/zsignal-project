@@ -1,9 +1,15 @@
 """Onset (frame-sync) detection and chord-by-chord frame decoding."""
 
+import math
+
 from . import protocol
 from .goertzel import goertzel_mag, goertzel_mags
 
-ON_RATIO = 0.4          # tone counts as ON if magnitude > ON_RATIO * bookend reference
+ON_RATIO = 0.5          # tone counts as ON if its tilt-corrected level (see _tone_levels) exceeds this
+# A preamble chord's FLAG_A must stand this far above the mean of the tones that
+# should be off. Rejects broadband bursts (PTT key-up clicks, squelch crashes)
+# that carry bookend-frequency energy but no tone pattern.
+PREAMBLE_CONTRAST = 5.0
 ONSET_THRESHOLD_MULT = 6.0
 COARSE_HOP_MS = 5
 FINE_STEP_MS = 1
@@ -30,6 +36,35 @@ def _bookend_energy(samples, sample_rate, start, chord_n):
     lo = goertzel_mag(win, sample_rate, protocol.TONE_FREQS[protocol.BOOKEND_LOW])
     hi = goertzel_mag(win, sample_rate, protocol.TONE_FREQS[protocol.BOOKEND_HIGH])
     return (lo + hi) / 2.0
+
+
+def _tone_levels(mags):
+    """Each tone's magnitude relative to what a bookend would measure at that
+    frequency, interpolating log-magnitude between the two bookends.
+
+    Radio audio paths are not flat -- one FM link measured the 3000 Hz bookend
+    ~11 dB below the 1000 Hz one -- so a single threshold against the bookend
+    average misreads the high tones as off and distortion on the low tones as on.
+    """
+    lo = max(mags[protocol.BOOKEND_LOW], 1e-12)
+    hi = max(mags[protocol.BOOKEND_HIGH], 1e-12)
+    span = protocol.BOOKEND_HIGH - protocol.BOOKEND_LOW
+    levels = []
+    for i, m in enumerate(mags):
+        t = (i - protocol.BOOKEND_LOW) / float(span)
+        expected = math.exp(math.log(lo) * (1.0 - t) + math.log(hi) * t)
+        levels.append(m / expected)
+    return levels
+
+
+def _preamble_contrast(samples, sample_rate, start, chord_n):
+    win = _scoring_window(samples, start, chord_n)
+    if win is None:
+        return 0.0
+    levels = _tone_levels(goertzel_mags(win, sample_rate, protocol.TONE_FREQS))
+    off = [levels[i] for i in range(protocol.NUM_TONES)
+           if i not in (protocol.BOOKEND_LOW, protocol.BOOKEND_HIGH, protocol.FLAG_A)]
+    return levels[protocol.FLAG_A] / (sum(off) / len(off) + 1e-9)
 
 
 def _sync_score(samples, sample_rate, start, chord_n):
@@ -66,7 +101,7 @@ def find_onset(samples, sample_rate, chord_ms=30):
     idx = 0
     while idx + chord_n <= len(samples):
         e = _bookend_energy(samples, sample_rate, idx, chord_n)
-        if e > threshold:
+        if e > threshold and _preamble_contrast(samples, sample_rate, idx, chord_n) > PREAMBLE_CONTRAST:
             coarse_hit = idx
             break
         idx += hop
@@ -106,6 +141,7 @@ def decode_frame(samples, sample_rate, start, chord_ms=30):
     guard_energy = 0.0
     guard_ref_sum = 0.0
     guard_ref_n = 0
+    guard_level = 0.0
 
     while idx + chord_n <= len(samples):
         win = _scoring_window(samples, idx, chord_n)
@@ -115,10 +151,11 @@ def decode_frame(samples, sample_rate, start, chord_ms=30):
         ref = (mags[protocol.BOOKEND_LOW] + mags[protocol.BOOKEND_HIGH]) / 2.0
         if ref <= 0:
             break
-        on_mask = [m > ref * ON_RATIO for m in mags]
-        kind, byte_val, bad_bits = protocol.classify_chord(on_mask)
+        levels = _tone_levels(mags)
+        kind, byte_val, bad_bits = protocol.classify_chord(levels, ON_RATIO)
 
         guard_energy = max(guard_energy, mags[protocol.GUARD])
+        guard_level = max(guard_level, levels[protocol.GUARD])
         guard_ref_sum += ref
         guard_ref_n += 1
 
@@ -152,7 +189,7 @@ def decode_frame(samples, sample_rate, start, chord_ms=30):
         "found_end": found_end,
         "guard_energy": guard_energy,
         "guard_ref_avg": guard_ref_avg,
-        "imd_warning": guard_ref_avg > 0 and guard_energy > guard_ref_avg * ON_RATIO,
+        "imd_warning": guard_level > ON_RATIO,
     }
 
 

@@ -89,15 +89,26 @@ class ChordKind:
     UNKNOWN = "unknown"
 
 
-def classify_chord(on_mask):
-    """Classify a tone on/off mask (list of 21 bools) as preamble/spacer/end/data/unknown.
+def classify_chord(levels, on_ratio=0.5):
+    """Classify a chord from its 21 tone levels, each relative to the level a
+    bookend would have at that frequency (so 1.0 = fully on, ~0 = off).
 
-    Returns (kind, extra) where extra is the decoded byte for DATA chords
-    (or None), plus a list of corrupted bit positions (1-8) for DATA chords.
+    Returns (kind, byte_val, corrupted): byte_val is the decoded byte for DATA
+    chords (else None); corrupted lists bit positions (1-8) whose tone and
+    inverse tone were both on or both off. Each bit is still decided by
+    whichever of the pair is louder, so a "corrupted" bit is low-confidence,
+    not necessarily wrong.
     """
-    flag_a, flag_b = on_mask[FLAG_A], on_mask[FLAG_B]
-    data_on = [on_mask[i] for i in BIT_INDEXES]
-    inv_on = [on_mask[i] for i in INV_INDEXES]
+    on = [l > on_ratio for l in levels]
+    flag_a, flag_b = on[FLAG_A], on[FLAG_B]
+    data_on = [on[i] for i in BIT_INDEXES]
+    inv_on = [on[i] for i in INV_INDEXES]
+
+    # Checked before the flags: the end chord sounds 19 tones at once, and over
+    # a real radio the intermodulation lands on the flag tones too. No data
+    # chord can have a bit and its inverse all on, so this is unambiguous.
+    if all(data_on) and all(inv_on):
+        return ChordKind.END, None, []
 
     if flag_a and not flag_b and not any(data_on) and not any(inv_on):
         return ChordKind.PREAMBLE, None, []
@@ -105,20 +116,13 @@ def classify_chord(on_mask):
     if flag_a and flag_b and not any(data_on) and not any(inv_on):
         return ChordKind.SPACER, None, []
 
-    if (not flag_a) and (not flag_b) and all(data_on) and all(inv_on):
-        return ChordKind.END, None, []
-
     if not flag_a and not flag_b:
         byte_val = 0
         corrupted = []
-        for idx, i in enumerate(range(1, 9)):
-            bit_on = data_on[idx]
-            inv_bit_on = inv_on[idx]
-            if bit_on == inv_bit_on:
-                corrupted.append(i)
-                bit = 1 if bit_on else 0
-            else:
-                bit = 1 if bit_on else 0
+        for idx, i in enumerate(BIT_INDEXES):
+            if data_on[idx] == inv_on[idx]:
+                corrupted.append(idx + 1)
+            bit = 1 if levels[i] > levels[INV_INDEXES[idx]] else 0
             byte_val = (byte_val << 1) | bit
         return ChordKind.DATA, byte_val, corrupted
 
