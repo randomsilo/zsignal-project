@@ -219,3 +219,6 @@ __marimo__/
 
 # Local machine-specific runtime config (COM ports, ALSA device names, etc.)
 zsignal-web/settings.json
+
+# zsignal-web message logs when run outside Docker (in Docker they live in /data)
+zsignal-web/*.jsonl

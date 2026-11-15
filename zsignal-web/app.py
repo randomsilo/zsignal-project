@@ -12,13 +12,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from zsignal import cli as zcli  # send_text()
 from zsignal import live_listen, protocol
 
+import log_store
 import settings_store
 
 app = Flask(__name__)
 
 settings = settings_store.load()
-sent_log = []
-listen_log = []
+# Persisted in the data volume so they survive restarts (see log_store.py).
+sent_log = log_store.load(log_store.SENT_PATH)
+listen_log = log_store.load(log_store.RECEIVED_PATH)
 listener = None
 
 
@@ -59,6 +61,7 @@ def api_send():
     entry = {"ts": time.time(), "text": text,
               "hex": protocol.bytes_to_hex(payload), "duration": duration}
     sent_log.append(entry)
+    log_store.append(log_store.SENT_PATH, entry)
     return jsonify(entry)
 
 
@@ -106,6 +109,7 @@ def api_listen_log():
             if event.get("ok"):
                 event["result"].pop("bytes", None)  # not JSON-serializable; hex carries the same data
             listen_log.append(event)
+            log_store.append(log_store.RECEIVED_PATH, event)
     return jsonify(listen_log)
 
 

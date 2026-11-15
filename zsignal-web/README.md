@@ -27,8 +27,32 @@ Then open `http://127.0.0.1:5055/` (or `http://<machine-ip>:5055/` from
 another computer on the LAN — the container binds `0.0.0.0` by default).
 Edit the `devices:` list for the `zsignal-web` service in
 `../docker-compose.yml` to match your box's sound card / Digirig serial port
-(`aplay -l`, `ls /dev/ttyUSB*`) before starting it. `settings.json` persists
-in the `zsignal-web-data` Docker volume across restarts.
+(`aplay -l`, `ls /dev/ttyUSB*`) before starting it.
+
+## Saved data
+
+Everything the app saves lives in the `zsignal-web-data` Docker volume,
+mounted at `/data`, so it survives restarts and rebuilds:
+
+| File | Contents |
+|---|---|
+| `settings.json` | Settings, plus the last Sender/Receiver |
+| `sent.jsonl` | Every sent message, one JSON object per line |
+| `received.jsonl` | Every received decode (including failures), one per line |
+
+The logs are append-only and never trimmed; only the newest 1000 entries of
+each are loaded at startup. To read them or take a copy:
+
+```
+docker compose exec zsignal-web tail /data/received.jsonl
+docker compose cp zsignal-web:/data/received.jsonl .
+```
+
+To start the logs fresh, delete the two `.jsonl` files and restart:
+`docker compose exec zsignal-web rm /data/sent.jsonl /data/received.jsonl`
+then `docker compose restart zsignal-web`. (`docker compose down -v` also
+works but deletes `settings.json` too.) Run outside Docker, the files go in
+`zsignal-web/` instead (git-ignored).
 
 ## Settings
 
@@ -45,10 +69,12 @@ General on-air messaging, in two side-by-side columns:
   visits. The three fields go on the wire as one zsignal text payload,
   `SENDER>RECEIVER:MESSAGE`. **Transmit** stops the receiver, sends, then
   turns the receiver back on.
-- **Log** (right): sent (`TX`, orange) and cleanly decoded received (`RX`,
-  green) messages, newest on top. It's rebuilt from the server's logs, so it
-  survives a page reload. **RX ON/OFF** toggles the receiver; **CLEAR** hides
-  the current entries in this browser.
+- **Log** (right): sent (`TX`, orange) and received (`RX`, green) messages,
+  newest on top. Every message that decodes is shown, including ones the
+  decoder flagged as damaged; the flagged bytes are only marked on the
+  **LISTEN** hex dump, to keep this screen clean. Outright decode failures
+  (e.g. noise with no preamble) appear only on LISTEN. **RX ON/OFF** toggles
+  the receiver; **CLEAR** hides the current entries in this browser.
 
 ## Echo Mode
 
