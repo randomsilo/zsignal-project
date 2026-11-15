@@ -183,6 +183,9 @@ textarea { resize: none; }
 .log-line.tx  { color: var(--tx); }
 .log-line.rx  { color: var(--rx); }
 .log-line .tag { font-weight: bold; }
+.log-line.damaged { color: #2fbf55; }               /* dimmer green: unverified */
+.log-line .bad  { color: var(--bad); font-weight: bold; }
+.log-line .note { color: var(--bad); }
 .log-empty { color: var(--dim); }
 
 .tx { color: var(--tx); }
