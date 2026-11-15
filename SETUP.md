@@ -8,6 +8,10 @@ numbered sections in order the first time you set up a box; skip to
 whichever section you need on subsequent visits. See `SSH.md` first if
 you're doing this over a remote session rather than at the keyboard.
 
+**On Windows under WSL2?** Start with [`windows_wsl2.md`](windows_wsl2.md).
+It covers forwarding the Digirig into WSL with usbipd-win and the
+WSL-specific permission fixes, then points back here.
+
 **zsignal-web and zsignal-receiver now run in Docker** (see
 `../docker-compose.yml` and each project's README) rather than via a venv +
 systemd unit. Run `../setup.sh` (optionally `--fix`) to check for and
