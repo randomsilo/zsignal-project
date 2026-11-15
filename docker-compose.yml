@@ -16,7 +16,9 @@ services:
       - "5055:5055"
     devices:
       - /dev/snd
-      - /dev/ttyUSB0
+      # Digirig CP2102N, by stable id so a USB re-enumeration (ttyUSB0 ->
+      # ttyUSB1) doesn't break it; always /dev/ttyUSB0 inside the container.
+      - /dev/serial/by-id/usb-Silicon_Labs_CP2102N_USB_to_UART_Bridge_Controller_607854e248cef011826485c5e9520995-if00-port0:/dev/ttyUSB0
     volumes:
       - zsignal-web-data:/data
 
