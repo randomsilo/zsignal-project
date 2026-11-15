@@ -78,13 +78,16 @@ General on-air messaging, in two side-by-side columns:
 
 ## Echo Mode
 
-A link test. While **ECHO MODE** is on (amber), each clean received message
+A link test. While **ECHO MODE** is on (amber), each received message
 addressed to your Sender callsign or `CQ` is sent back to its sender, after a
 2s pause, as `ME>THEM:ECHO: <message>`. A raw payload that isn't in station
 format is echoed as `ECHO: <text>`. Turning it on also turns the receiver on.
 To keep two stations in Echo Mode from bouncing forever, it never echoes your
-own messages or anything that already starts with `ECHO: `. Corrupted or
-truncated decodes are never echoed.
+own messages or anything that already starts with `ECHO: `. Messages the
+decoder flagged as damaged are echoed too: a flagged bit is low-confidence,
+not necessarily wrong (see `classify_chord` in `zsignal/protocol.py`), and
+the echo shows the other station exactly what was heard. Outright decode
+failures are never echoed.
 
 Echo Mode runs in the browser (`app.js`), so the page has to stay open. It
 always starts off after a reload, so the station never transmits on its own

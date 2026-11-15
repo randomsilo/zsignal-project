@@ -60,10 +60,6 @@ function parseStationMessage(text) {
   return { sender: sender, receiver: receiver, message: rest.slice(colon + 1) };
 }
 
-function cleanDecode(e) {
-  return e.ok && e.result.found_end && !(e.result.corrupted && e.result.corrupted.length);
-}
-
 // ---- Listening state ----------------------------------------------------------
 // One physical receiver, so one shared boolean; every RX toggle reflects it.
 
@@ -124,8 +120,11 @@ function queueTx(text, keepListening) {
 }
 
 // ---- Echo Mode --------------------------------------------------------------
-// While on, each clean received message addressed to SENDER (or CQ) is sent
-// back to whoever sent it as "ME>THEM:ECHO: <message>" after a short pause.
+// While on, each received message addressed to SENDER (or CQ) is sent back
+// to whoever sent it as "ME>THEM:ECHO: <message>" after a short pause. That
+// includes decodes with flagged ("corrupted") bits: the decoder still picks
+// each bit from the louder tone, so a flag means low confidence, not wrong,
+// and echoing exactly what was heard is the point of a link test.
 // Never echoes our own messages or anything already starting "ECHO: ", so two
 // stations both in Echo Mode can't bounce messages back and forth forever.
 
@@ -164,7 +163,7 @@ function toggleEcho() {
 }
 
 function echoReplyFor(e) {
-  if (!cleanDecode(e)) return null;
+  if (!e.ok) return null;
   var me = mySender();
   var text = e.result.text;
   var p = parseStationMessage(text);
@@ -194,7 +193,7 @@ function handleEcho(e) {
 }
 
 // ---- Station log ------------------------------------------------------------
-// One merged log: sent (orange) and clean received (green) messages, newest
+// One merged log: sent (orange) and received (green) messages, newest
 // on top. Built from the server's sent and received logs, so it survives a
 // page reload. CLEAR hides everything up to now (in this browser only).
 
