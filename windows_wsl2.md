@@ -212,7 +212,7 @@ docker compose logs zsignal-web        # should show "Running on all addresses (
 ```
 
 zsignal-web is then at <http://localhost:5055> from a Windows browser,
-because WSL2 forwards localhost ports to Windows. On the Settings tab, set
+because WSL2 forwards localhost ports to Windows. On the Settings screen, set
 audio device `plughw:CARD=Device,DEV=0` and PTT serial port `/dev/ttyUSB0`.
 They're saved in the `zsignal-web-data` volume (`/data/settings.json`) and
 survive restarts.
@@ -237,8 +237,8 @@ devices. Docker Engine inside the distro is the known-good path.
 The following worked in the container: the UI and static assets loading,
 saving settings, settings surviving a restart, and Listen start, levels and
 stop recording live from the Digirig. The **Listen** path only runs
-`arecord` and never opens the PTT port. **Send**, **Station COMS** and
-**Volleyball** key the radio through RTS. Only use them when you're licensed
+`arecord` and never opens the PTT port. **Send**, **Station** Transmit and
+**Echo Mode** key the radio through RTS. Only use them when you're licensed
 for the frequency and it's clear. Transmitting from the container hasn't
 been verified on WSL2 yet.
 

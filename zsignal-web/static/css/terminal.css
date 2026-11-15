@@ -1,0 +1,198 @@
+/* zsignal-web: dark "military terminal" theme. No external fonts or CSS --
+   this runs in the field without internet, so only locally installed
+   monospace fonts are used. */
+
+:root {
+  --bg:       #050805;
+  --panel:    #0a100a;
+  --line:     #1f3a1f;
+  --text:     #9fc89f;   /* chrome / labels */
+  --dim:      #5a7a5a;
+  --rx:       #39ff6a;   /* received messages */
+  --tx:       #ff9a2e;   /* sent messages */
+  --bad:      #ff4a4a;
+  --focus:    #39ff6a;
+  --font: "DejaVu Sans Mono", "Cousine", "Noto Sans Mono", "Liberation Mono",
+          "Consolas", "Lucida Console", "Courier New", monospace;
+  --nav-h: 30px;
+  --gap: 4px;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.35 var(--font);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- Nav bar -------------------------------------------------------- */
+
+.nav {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: var(--gap);
+  padding: var(--gap);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  min-height: var(--nav-h);
+}
+
+.nav-btn, .btn {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 2px 8px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.nav-btn:hover, .btn:hover { border-color: var(--text); }
+.nav-btn:focus-visible, .btn:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
+
+.nav-home { font-weight: bold; }
+.nav-btn.is-active { color: var(--bg); background: var(--text); border-color: var(--text); }
+
+/* Echo Mode toggle: amber when armed, since it transmits on its own */
+.nav-toggle[aria-pressed="true"] { color: var(--bg); background: var(--tx); border-color: var(--tx); }
+
+.nav-status { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 0 4px; }
+.status-rx { color: var(--dim); }
+.status-rx.on { color: var(--rx); }
+.status-rx.on::before { content: "\25CF "; }
+.status-tx { color: var(--tx); font-weight: bold; }
+
+/* ---- Screens -------------------------------------------------------- */
+
+main { flex: 1; min-height: 0; display: flex; }
+
+.screen {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap);
+}
+.screen.is-active { display: flex; }
+
+/* STATION: two 50% columns, full remaining height */
+.screen.station { flex-direction: row; }
+.screen.station > .card { flex: 1 1 50%; width: 50%; min-width: 0; }
+
+/* ---- Cards ---------------------------------------------------------- */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.card.grow { flex: 1; }
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--dim);
+  letter-spacing: 0.1em;
+}
+.card-actions { display: flex; gap: var(--gap); }
+
+.card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+
+/* ---- Form controls -------------------------------------------------- */
+
+label { color: var(--dim); margin-top: 4px; }
+label:first-child { margin-top: 0; }
+label small { color: var(--dim); opacity: 0.75; text-transform: none; }
+
+input, textarea {
+  font: inherit;
+  color: var(--tx);          /* what you type is what you'll send */
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 3px 5px;
+  width: 100%;
+  caret-color: var(--tx);
+  border-radius: 0;
+}
+input:focus, textarea:focus { outline: none; border-color: var(--focus); }
+input::placeholder, textarea::placeholder { color: var(--dim); opacity: 0.6; }
+input.callsign { text-transform: uppercase; }
+textarea { resize: none; }
+
+.settings input { color: var(--text); caret-color: var(--text); max-width: 40em; }
+
+/* Transmit card: Sender / Receiver / Message stacked, message fills the rest */
+.tx-body textarea { flex: 1; min-height: 4em; }
+
+.btn-tx {
+  margin-top: 6px;
+  align-self: flex-start;
+  color: var(--tx);
+  border-color: var(--tx);
+  font-weight: bold;
+  padding: 3px 14px;
+}
+.btn-tx:hover { background: var(--tx); color: var(--bg); }
+.btn-tx.is-busy { opacity: 0.5; cursor: wait; }
+.btn-tx.is-busy::after { content: " ..."; }
+
+.btn-sm { padding: 0 6px; }
+.btn.is-on { color: var(--rx); border-color: var(--rx); }
+
+.row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.ok { color: var(--rx); }
+
+/* ---- Logs ----------------------------------------------------------- */
+
+.log {
+  display: block;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-color: var(--line) var(--bg);
+}
+.mono-pre { white-space: pre; overflow-x: auto; }
+
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 1px 0;
+  border-bottom: 1px dotted #122212;
+}
+.log-line .ts { color: var(--dim); }
+.log-line.tx  { color: var(--tx); }
+.log-line.rx  { color: var(--rx); }
+.log-line .tag { font-weight: bold; }
+.log-empty { color: var(--dim); }
+
+.tx { color: var(--tx); }
+.tone-ok  { color: var(--rx); }
+.tone-bad { color: var(--bad); font-weight: bold; }
+
+/* ---- Small screens: stack the Station columns ----------------------- */
+
+@media (max-width: 600px) {
+  .screen.station { flex-direction: column; }
+  .screen.station > .card { width: 100%; flex: 1 1 50%; }
+  .nav-status { margin-left: 0; }
+}

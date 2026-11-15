@@ -6,6 +6,9 @@ import os
 DATA_DIR = os.environ.get("ZSIGNAL_WEB_DATA_DIR", os.path.dirname(__file__))
 PATH = os.path.join(DATA_DIR, "settings.json")
 
+# Keys from removed features, dropped from settings.json on the next save.
+OBSOLETE = ("volleyball_station",)
+
 DEFAULTS = {
     # Match the CLI defaults (zsignal/cli.py AUDIO_DEVICE): the Digirig's USB
     # sound card, and its serial port as docker-compose.yml maps it. An empty
@@ -18,7 +21,6 @@ DEFAULTS = {
     "ptt_tail_delay": 0.5,
     "station_sender": "",
     "station_receiver": "",
-    "volleyball_station": "",
 }
 
 
@@ -28,6 +30,8 @@ def load():
             data = json.load(f)
         merged = dict(DEFAULTS)
         merged.update(data)
+        for k in OBSOLETE:
+            merged.pop(k, None)
         return merged
     return dict(DEFAULTS)
 

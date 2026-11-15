@@ -1,9 +1,13 @@
 # zsignal-web
 
-A small Flask UI over the `zsignal` CLI, styled with a locally-vendored copy
-of Bulma CSS (no CDN dependency, since this is meant to run in the field
-without internet). **Station COMS** and **Volleyball** are the primary
-screens; **Send**, **Listen**, and **Settings** are kept for raw
+A small Flask UI over the `zsignal` CLI, with a dark, fixed-width "military
+terminal" look (`static/css/terminal.css`, no CDN or web fonts, since this is
+meant to run in the field without internet). Sent traffic is orange and
+received traffic is green. The layout is kept tight for small screens like a
+Chromebook.
+
+The nav bar is **STATION** (the main screen), **ECHO MODE**, **SEND**,
+**LISTEN** and **SETTINGS**. Send, Listen and Settings are kept for raw
 send/receive and hardware configuration.
 
 Expects `zsignal` to exist as a peer folder (`../zsignal`) — `app.py` adds that
@@ -29,28 +33,36 @@ in the `zsignal-web-data` Docker volume across restarts.
 ## Settings
 
 Set the audio device and PTT method (serial port for a Digirig-style USB
-interface, or a GPIO pin) on the Settings tab before using Send/Listen/Station
-COMS/Volleyball.
+interface, or a GPIO pin) on the Settings screen before using Station, Send or
+Listen.
 
-## Station COMS
+## Station
 
-General on-air messaging. Sender/Receiver (receiver may be `CQ` for all
-stations) are free text, auto-uppercased, and remembered between visits. The
-three fields are combined into one zsignal text payload on the wire as
-`SENDER>RECEIVER:MESSAGE` and parsed back out of received messages for the
-log table. **Transmit** stops any active listening, sends, then restarts
-listening automatically.
+General on-air messaging, in two side-by-side columns:
 
-## Volleyball
+- **Transmit** (left): Sender, Receiver (may be `CQ` for all stations) and
+  Message. Sender and Receiver are auto-uppercased and remembered between
+  visits. The three fields go on the wire as one zsignal text payload,
+  `SENDER>RECEIVER:MESSAGE`. **Transmit** stops the receiver, sends, then
+  turns the receiver back on.
+- **Log** (right): sent (`TX`, orange) and cleanly decoded received (`RX`,
+  green) messages, newest on top. It's rebuilt from the server's logs, so it
+  survives a page reload. **RX ON/OFF** toggles the receiver; **CLEAR** hides
+  the current entries in this browser.
 
-Bounces a fixed message back and forth with another station to exercise a
-radio link: **Start** sends `"{station}: serves."`; whichever station hears
-that replies (after a 2s pause) with `"{me}:{server}: bump. set. spike."`;
-from then on, either side hearing a `bump. set. spike.` message just echoes
-it back unchanged after another 2s pause, so the same message volleys back
-and forth indefinitely until **Stop** (which sends `"{station}: Good
-Game."` and stops listening). This logic runs entirely in the browser
-(`app.js`), so the tab needs to stay open for the rally to continue.
+## Echo Mode
+
+A link test. While **ECHO MODE** is on (amber), each clean received message
+addressed to your Sender callsign or `CQ` is sent back to its sender, after a
+2s pause, as `ME>THEM:ECHO: <message>`. A raw payload that isn't in station
+format is echoed as `ECHO: <text>`. Turning it on also turns the receiver on.
+To keep two stations in Echo Mode from bouncing forever, it never echoes your
+own messages or anything that already starts with `ECHO: `. Corrupted or
+truncated decodes are never echoed.
+
+Echo Mode runs in the browser (`app.js`), so the page has to stay open. It
+always starts off after a reload, so the station never transmits on its own
+just because a tab was reopened.
 
 ## Platform notes
 
@@ -58,10 +70,11 @@ Game."` and stops listening). This logic runs entirely in the browser
   device selection there -- set the interface as the Windows default playback
   device in Sound settings instead of using the device field).
 - **Listen** requires Linux (`arecord`) — zsignal's Windows audio path has no
-  recording implementation yet, so the Listen tab will report an error if
+  recording implementation yet, so the Listen screen will report an error if
   started from Windows.
-- The Listen tab segments the live audio stream into distinct messages by
+- The Listen screen segments the live audio stream into distinct messages by
   detecting ~1 second of silence after a transmission, then decodes each
   segment independently (see `zsignal/live_listen.py`). Each decoded message
   renders as three stacked lines (text / high-nibble hex / low-nibble hex per
-  byte column), in the style of an old mainframe hex-dump editor.
+  byte column), in the style of an old mainframe hex-dump editor, newest on
+  top.

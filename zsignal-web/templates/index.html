@@ -1,191 +1,106 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>zsignal</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/bulma.min.css') }}">
-  <style>
-    .zsignal-mono { font-family: "Courier New", monospace; white-space: pre; overflow-x: auto; }
-    .tab-panel { display: none; }
-    .tab-panel.is-active { display: block; }
-    #sent-log, #listen-log { max-height: 50vh; overflow-y: auto; }
-    .tone-ok { color: #257942; }
-    .tone-bad { color: #cc3333; font-weight: bold; }
-    .log-table-wrap { max-height: 50vh; overflow-y: auto; }
-    .station-input { text-transform: uppercase; }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}">
 </head>
 <body>
-<section class="section">
-  <div class="container">
-    <div class="tabs is-boxed" id="tabs">
-      <ul>
-        <li class="is-active" data-tab="stationcoms"><a>Station COMS</a></li>
-        <li data-tab="volleyball"><a>Volleyball</a></li>
-        <li data-tab="send"><a>Send</a></li>
-        <li data-tab="listen"><a>Listen</a></li>
-        <li data-tab="settings"><a>Settings</a></li>
-      </ul>
-    </div>
 
-    <div class="tab-panel is-active" id="panel-stationcoms">
-      <h1 class="title">Station COMS</h1>
+<nav class="nav" id="nav">
+  <button class="nav-btn nav-home is-active" data-screen="station">STATION</button>
+  <button class="nav-btn nav-toggle" id="echo-btn" aria-pressed="false"
+          title="Transmit each clean message received for you or CQ back to its sender, prefixed &quot;ECHO: &quot;">ECHO MODE</button>
+  <button class="nav-btn" data-screen="send">SEND</button>
+  <button class="nav-btn" data-screen="listen">LISTEN</button>
+  <button class="nav-btn" data-screen="settings">SETTINGS</button>
+  <span class="nav-status">
+    <span id="status-tx" class="status-tx" hidden>TX</span>
+    <span id="status-rx" class="status-rx">RX OFF</span>
+  </span>
+</nav>
 
-      <div class="box">
-        <h2 class="subtitle">Transmit</h2>
-        <div class="field is-horizontal">
-          <div class="field-body">
-            <div class="field">
-              <label class="label">Sender</label>
-              <div class="control">
-                <input class="input station-input" id="sc-sender" type="text" placeholder="KJ5EHZ">
-              </div>
-            </div>
-            <div class="field">
-              <label class="label">Receiver</label>
-              <div class="control">
-                <input class="input station-input" id="sc-receiver" type="text" placeholder="KJ5EHZ or CQ">
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="field">
-          <label class="label">Message</label>
-          <div class="control">
-            <textarea class="textarea" id="sc-message" rows="4" placeholder="Message to transmit..."></textarea>
-          </div>
-        </div>
-        <div class="field">
-          <div class="control">
-            <button class="button is-primary" id="sc-transmit-btn">Transmit</button>
-          </div>
-        </div>
-      </div>
+<main>
 
-      <h2 class="subtitle">Log</h2>
-      <div class="field is-grouped">
-        <div class="control">
-          <button class="button is-primary" id="sc-listen-btn" data-listening="false">Listen</button>
-        </div>
-        <div class="control">
-          <button class="button" id="sc-clear-btn">Clear Log</button>
-        </div>
-      </div>
-      <div class="box log-table-wrap">
-        <table class="table is-fullwidth is-striped">
-          <thead><tr><th>Time</th><th>Sender</th><th>Receiver</th><th>Message</th></tr></thead>
-          <tbody id="sc-log-body"></tbody>
-        </table>
+  <!-- STATION: transmit card (left) + log card (right) -->
+  <section class="screen station is-active" id="screen-station">
+    <div class="card" id="tx-card">
+      <div class="card-head">TRANSMIT</div>
+      <div class="card-body tx-body">
+        <label for="sc-sender">SENDER</label>
+        <input class="callsign" id="sc-sender" type="text" placeholder="KJ5EZH" autocomplete="off" spellcheck="false">
+        <label for="sc-receiver">RECEIVER</label>
+        <input class="callsign" id="sc-receiver" type="text" placeholder="KJ5EZH OR CQ" autocomplete="off" spellcheck="false">
+        <label for="sc-message">MESSAGE</label>
+        <textarea id="sc-message" placeholder="MESSAGE TO TRANSMIT..." spellcheck="false"></textarea>
+        <button class="btn btn-tx" id="sc-transmit-btn">TRANSMIT</button>
       </div>
     </div>
 
-    <div class="tab-panel" id="panel-volleyball">
-      <h1 class="title">Volleyball</h1>
-      <p class="mb-4">Bounces a fixed message back and forth with another station to test radio link reliability.</p>
-
-      <div class="box">
-        <div class="field">
-          <label class="label">Station</label>
-          <div class="control">
-            <input class="input station-input" id="vb-station" type="text" placeholder="KJ5EHZ">
-          </div>
-        </div>
-        <div class="field is-grouped">
-          <div class="control">
-            <button class="button is-primary" id="vb-start-btn">Start</button>
-          </div>
-          <div class="control">
-            <button class="button is-danger" id="vb-stop-btn">Stop</button>
-          </div>
-        </div>
+    <div class="card" id="log-card">
+      <div class="card-head">
+        <span>LOG</span>
+        <span class="card-actions">
+          <button class="btn btn-sm listen-toggle" id="sc-listen-btn">RX ON</button>
+          <button class="btn btn-sm" id="sc-clear-btn">CLEAR</button>
+        </span>
       </div>
+      <div class="card-body log" id="sc-log"></div>
+    </div>
+  </section>
 
-      <h2 class="subtitle">Log</h2>
-      <div class="field is-grouped">
-        <div class="control">
-          <button class="button is-primary" id="vb-listen-btn" data-listening="false">Listen</button>
-        </div>
-        <div class="control">
-          <button class="button" id="vb-clear-btn">Clear Log</button>
-        </div>
-      </div>
-      <div class="box log-table-wrap">
-        <table class="table is-fullwidth is-striped">
-          <thead><tr><th>Time</th><th>Sender</th><th>Receiver</th><th>Message</th></tr></thead>
-          <tbody id="vb-log-body"></tbody>
-        </table>
+  <!-- SEND: raw text payload -->
+  <section class="screen" id="screen-send">
+    <div class="card">
+      <div class="card-head">SEND // RAW PAYLOAD</div>
+      <div class="card-body">
+        <textarea id="send-text" rows="6" placeholder="MESSAGE TO TRANSMIT..." spellcheck="false"></textarea>
+        <button class="btn btn-tx" id="send-btn">SEND</button>
       </div>
     </div>
-
-    <div class="tab-panel" id="panel-send">
-      <h1 class="title">Z Signal - Transmit</h1>
-      <div class="field">
-        <div class="control">
-          <textarea class="textarea" id="send-text" rows="7" placeholder="Message to transmit..."></textarea>
-        </div>
-      </div>
-      <div class="field">
-        <div class="control">
-          <button class="button is-primary" id="send-btn">Send</button>
-        </div>
-      </div>
-      <h2 class="subtitle">Sent log</h2>
-      <div class="box zsignal-mono" id="sent-log"></div>
+    <div class="card grow">
+      <div class="card-head">SENT LOG</div>
+      <div class="card-body log mono-pre tx" id="sent-log"></div>
     </div>
+  </section>
 
-    <div class="tab-panel" id="panel-listen">
-      <h1 class="title">Z Signal - Observe</h1>
-      <div class="field">
-        <div class="control">
-          <button class="button is-primary" id="listen-btn" data-listening="false">Listen</button>
-        </div>
+  <!-- LISTEN: raw hex dump -->
+  <section class="screen" id="screen-listen">
+    <div class="card grow">
+      <div class="card-head">
+        <span>LISTEN // HEX DUMP</span>
+        <span class="card-actions"><button class="btn btn-sm listen-toggle" id="listen-btn">RX ON</button></span>
       </div>
-      <h2 class="subtitle">Received log</h2>
-      <div class="box zsignal-mono" id="listen-log"></div>
+      <div class="card-body log mono-pre" id="listen-log"></div>
     </div>
+  </section>
 
-    <div class="tab-panel" id="panel-settings">
-      <h1 class="title">Settings</h1>
-      <div class="field">
-        <label class="label">Audio device (ALSA -D, e.g. plughw:CARD=Device,DEV=0 -- leave blank on Windows)</label>
-        <div class="control">
-          <input class="input" id="set-device" type="text">
+  <!-- SETTINGS -->
+  <section class="screen" id="screen-settings">
+    <div class="card">
+      <div class="card-head">SETTINGS</div>
+      <div class="card-body settings">
+        <label for="set-device">AUDIO DEVICE <small>ALSA -D, e.g. plughw:CARD=Device,DEV=0 (blank on Windows)</small></label>
+        <input id="set-device" type="text" spellcheck="false">
+        <label for="set-ptt-serial">PTT SERIAL PORT <small>COM3, /dev/ttyUSB0 ... blank to use a GPIO pin</small></label>
+        <input id="set-ptt-serial" type="text" spellcheck="false">
+        <label for="set-ptt-pin">PTT GPIO PIN <small>only if serial port is blank</small></label>
+        <input id="set-ptt-pin" type="number">
+        <label for="set-ptt-delay">PTT LEAD DELAY <small>seconds before audio</small></label>
+        <input id="set-ptt-delay" type="number" step="0.1">
+        <label for="set-ptt-tail-delay">PTT TAIL DELAY <small>seconds after audio</small></label>
+        <input id="set-ptt-tail-delay" type="number" step="0.1">
+        <div class="row">
+          <button class="btn" id="save-settings-btn">SAVE</button>
+          <span id="settings-saved" class="ok" hidden>SAVED.</span>
         </div>
       </div>
-      <div class="field">
-        <label class="label">PTT serial port (COM3, /dev/ttyUSB0, ...) -- leave blank to use a GPIO pin instead</label>
-        <div class="control">
-          <input class="input" id="set-ptt-serial" type="text">
-        </div>
-      </div>
-      <div class="field">
-        <label class="label">PTT GPIO pin (used only if serial port above is blank)</label>
-        <div class="control">
-          <input class="input" id="set-ptt-pin" type="number">
-        </div>
-      </div>
-      <div class="field">
-        <label class="label">PTT lead delay (seconds, before audio starts)</label>
-        <div class="control">
-          <input class="input" id="set-ptt-delay" type="number" step="0.1">
-        </div>
-      </div>
-      <div class="field">
-        <label class="label">PTT tail delay (seconds, after audio ends)</label>
-        <div class="control">
-          <input class="input" id="set-ptt-tail-delay" type="number" step="0.1">
-        </div>
-      </div>
-      <div class="field">
-        <div class="control">
-          <button class="button is-primary" id="save-settings-btn">Save</button>
-        </div>
-      </div>
-      <p id="settings-saved" class="has-text-success" style="display:none;">Saved.</p>
     </div>
+  </section>
 
-  </div>
-</section>
+</main>
+
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

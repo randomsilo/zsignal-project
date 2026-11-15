@@ -1,36 +1,254 @@
 function $(sel) { return document.querySelector(sel); }
+function $all(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
 
-function setupTabs() {
-  document.querySelectorAll("#tabs li").forEach(function (li) {
-    li.addEventListener("click", function () {
-      document.querySelectorAll("#tabs li").forEach(function (x) { x.classList.remove("is-active"); });
-      li.classList.add("is-active");
-      document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.remove("is-active"); });
-      document.getElementById("panel-" + li.dataset.tab).classList.add("is-active");
-    });
+// ---- Navigation -------------------------------------------------------------
+
+function showScreen(name) {
+  $all(".nav-btn[data-screen]").forEach(function (b) {
+    b.classList.toggle("is-active", b.dataset.screen === name);
+  });
+  $all(".screen").forEach(function (s) {
+    s.classList.toggle("is-active", s.id === "screen-" + name);
   });
 }
 
+function setupNav() {
+  $all(".nav-btn[data-screen]").forEach(function (b) {
+    b.addEventListener("click", function () { showScreen(b.dataset.screen); });
+  });
+}
+
+// ---- Helpers ----------------------------------------------------------------
+
 function fmtTime(ts) {
-  return new Date(ts * 1000).toLocaleTimeString();
+  return new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
 }
 
 function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function renderSentLog(entries) {
-  var box = $("#sent-log");
-  box.textContent = entries.map(function (e) {
-    return "[" + fmtTime(e.ts) + "] (" + e.duration.toFixed(2) + "s) " + e.text;
-  }).join("\n");
-  box.scrollTop = box.scrollHeight;
+function getJson(url) {
+  return fetch(url).then(function (r) { return r.json(); });
 }
 
-// Classic mainframe/ISPF-style 3-line hex dump: text row, then high-nibble
-// row, then low-nibble row, one column per byte (e.g. "DAN" / "444" / "41E").
-// Each column is colored per-byte: green if that byte decoded cleanly, red
-// if decoder.py flagged a bit/inverse mismatch on it.
+function postJson(url, body) {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {})
+  }).then(function (r) { return r.json(); });
+}
+
+function mySender() {
+  return ($("#sc-sender").value || "").trim().toUpperCase();
+}
+
+// ---- Station message wire format -------------------------------------------
+// "SENDER>RECEIVER:MESSAGE" (one zsignal text payload carrying all three
+// fields; RECEIVER may be "CQ" for all stations).
+
+function parseStationMessage(text) {
+  var gt = text.indexOf(">");
+  if (gt < 0) return null;
+  var sender = text.slice(0, gt);
+  var rest = text.slice(gt + 1);
+  var colon = rest.indexOf(":");
+  if (colon < 0) return null;
+  var receiver = rest.slice(0, colon);
+  if (!sender || !receiver) return null;
+  return { sender: sender, receiver: receiver, message: rest.slice(colon + 1) };
+}
+
+function cleanDecode(e) {
+  return e.ok && e.result.found_end && !(e.result.corrupted && e.result.corrupted.length);
+}
+
+// ---- Listening state ----------------------------------------------------------
+// One physical receiver, so one shared boolean; every RX toggle reflects it.
+
+var isListening = false;
+
+function setListeningUI(listening) {
+  isListening = listening;
+  $all(".listen-toggle").forEach(function (btn) {
+    btn.textContent = listening ? "RX OFF" : "RX ON";
+    btn.classList.toggle("is-on", listening);
+  });
+  var st = $("#status-rx");
+  st.textContent = listening ? "RX" : "RX OFF";
+  st.classList.toggle("on", listening);
+}
+
+function startListening() {
+  return postJson("/api/listen/start").then(function (r) {
+    if (r.error && r.error !== "already listening") throw new Error(r.error);
+    setListeningUI(true);
+  });
+}
+
+function stopListening() {
+  return postJson("/api/listen/stop").then(function () { setListeningUI(false); });
+}
+
+function toggleListen() {
+  (isListening ? stopListening() : startListening()).catch(function (err) {
+    alert("Listen failed: " + err.message);
+  });
+}
+
+// ---- Transmit queue -----------------------------------------------------------
+// Every transmission (Transmit button, Echo Mode replies) goes through one
+// queue so two sends never overlap. Each one stops the receiver, sends, and
+// restarts the receiver if it was on (or if `keepListening` is set), so the
+// transmitter and receiver never fight over the sound card.
+
+var txChain = Promise.resolve();
+
+function setTxUI(on) { $("#status-tx").hidden = !on; }
+
+function queueTx(text, keepListening) {
+  var job = txChain.then(function () {
+    var resume = isListening || keepListening;
+    setTxUI(true);
+    return postJson("/api/listen/stop")
+      .then(function () { return postJson("/api/send", { text: text }); })
+      .then(function (result) {
+        var after = resume ? startListening() : (setListeningUI(false), Promise.resolve());
+        return after.then(function () { return result; });
+      })
+      .finally(function () { setTxUI(false); pollLogs(); });
+  });
+  txChain = job.catch(function () {}); // keep the queue alive after a failure
+  return job;
+}
+
+// ---- Echo Mode --------------------------------------------------------------
+// While on, each clean received message addressed to SENDER (or CQ) is sent
+// back to whoever sent it as "ME>THEM:ECHO: <message>" after a short pause.
+// Never echoes our own messages or anything already starting "ECHO: ", so two
+// stations both in Echo Mode can't bounce messages back and forth forever.
+
+var ECHO_PREFIX = "ECHO: ";
+var ECHO_DELAY_MS = 2000;   // give the other station time to drop PTT
+var echoOn = false;
+var echoTimers = [];
+
+function setEchoUI(on) {
+  echoOn = on;
+  var b = $("#echo-btn");
+  b.setAttribute("aria-pressed", on ? "true" : "false");  // amber when on
+}
+
+function toggleEcho() {
+  if (echoOn) {
+    echoTimers.forEach(clearTimeout);
+    echoTimers = [];
+    setEchoUI(false);
+    return;
+  }
+  if (!mySender()) {
+    alert("Set SENDER (your callsign) before turning on Echo Mode.");
+    showScreen("station");
+    $("#sc-sender").focus();
+    return;
+  }
+  saveStationFields();
+  setEchoUI(true);
+  if (!isListening) {
+    startListening().catch(function (err) {
+      setEchoUI(false);
+      alert("Echo Mode needs the receiver: " + err.message);
+    });
+  }
+}
+
+function echoReplyFor(e) {
+  if (!cleanDecode(e)) return null;
+  var me = mySender();
+  var text = e.result.text;
+  var p = parseStationMessage(text);
+  if (!p) {
+    // A raw (non-station-format) payload: echo it as-is with the prefix.
+    return text.indexOf(ECHO_PREFIX) === 0 ? null : ECHO_PREFIX + text;
+  }
+  var from = p.sender.toUpperCase(), to = p.receiver.toUpperCase();
+  if (from === me) return null;
+  if (to !== me && to !== "CQ") return null;
+  if (p.message.indexOf(ECHO_PREFIX) === 0) return null;
+  return me + ">" + p.sender + ":" + ECHO_PREFIX + p.message;
+}
+
+function handleEcho(e) {
+  if (!echoOn) return;
+  var reply = echoReplyFor(e);
+  if (!reply) return;
+  var t = setTimeout(function () {
+    echoTimers = echoTimers.filter(function (x) { return x !== t; });
+    if (!echoOn) return;
+    queueTx(reply, true).then(function (r) {
+      if (r && r.error) console.warn("echo failed:", r.error);
+    });
+  }, ECHO_DELAY_MS);
+  echoTimers.push(t);
+}
+
+// ---- Station log ------------------------------------------------------------
+// One merged log: sent (orange) and clean received (green) messages, newest
+// on top. Built from the server's sent and received logs, so it survives a
+// page reload. CLEAR hides everything up to now (in this browser only).
+
+var CLEAR_KEY = "zsignal.logClearedAt";
+var clearedAt = 0;
+try { clearedAt = parseFloat(localStorage.getItem(CLEAR_KEY)) || 0; } catch (e) { /* storage blocked */ }
+
+function logLineHtml(kind, ts, text) {
+  var p = parseStationMessage(text);
+  var body = p
+    ? '<span class="tag">' + escapeHtml(p.sender + ">" + p.receiver) + "</span> " + escapeHtml(p.message)
+    : escapeHtml(text);
+  return '<div class="log-line ' + kind + '"><span class="ts">' + fmtTime(ts) + "</span> " +
+         '<span class="tag">' + kind.toUpperCase() + "</span> " + body + "</div>";
+}
+
+var lastStationKey = "";
+
+function renderStationLog(sent, received) {
+  var items = [];
+  sent.forEach(function (e) { items.push({ kind: "tx", ts: e.ts, text: e.text }); });
+  received.forEach(function (e) {
+    if (cleanDecode(e)) items.push({ kind: "rx", ts: e.ts, text: e.result.text });
+  });
+  items = items.filter(function (i) { return i.ts > clearedAt; });
+  items.sort(function (a, b) { return b.ts - a.ts; });
+
+  var key = items.length + ":" + (items.length ? items[0].ts : 0) + ":" + clearedAt;
+  if (key === lastStationKey) return;   // unchanged -- don't disturb scroll position
+  lastStationKey = key;
+
+  var box = $("#sc-log");
+  box.innerHTML = items.length
+    ? items.map(function (i) { return logLineHtml(i.kind, i.ts, i.text); }).join("")
+    : '<div class="log-empty">-- NO TRAFFIC --</div>';
+}
+
+// ---- Send screen log --------------------------------------------------------
+
+var lastSentCount = -1;
+
+function renderSentLog(entries) {
+  if (entries.length === lastSentCount) return;
+  lastSentCount = entries.length;
+  $("#sent-log").textContent = entries.slice().reverse().map(function (e) {
+    return fmtTime(e.ts) + " (" + e.duration.toFixed(2) + "s) " + e.text;
+  }).join("\n") || "-- NOTHING SENT --";
+}
+
+// ---- Listen screen hex dump -------------------------------------------------
+// Mainframe-style 3-line dump per message: text row, high-nibble row,
+// low-nibble row, one column per byte; green if the byte decoded cleanly,
+// red if decoder.py flagged a mismatch on it. Newest on top.
+
 function hexNibbleRows(hexStr) {
   var hi = "", lo = "";
   for (var i = 0; i < hexStr.length; i += 2) {
@@ -58,17 +276,19 @@ function corruptedByteSet(corrupted) {
 function coloredRowHtml(rowStr, badSet) {
   var out = "";
   for (var i = 0; i < rowStr.length; i++) {
-    var cls = badSet[i] ? "tone-bad" : "tone-ok";
-    out += '<span class="' + cls + '">' + escapeHtml(rowStr[i]) + "</span>";
+    out += '<span class="' + (badSet[i] ? "tone-bad" : "tone-ok") + '">' + escapeHtml(rowStr[i]) + "</span>";
   }
   return out;
 }
 
+var lastListenCount = -1;
+
 function renderListenLog(entries) {
-  var box = $("#listen-log");
+  if (entries.length === lastListenCount) return;
+  lastListenCount = entries.length;
   var html = "";
-  entries.forEach(function (e) {
-    html += "[" + fmtTime(e.ts) + "]\n";
+  entries.slice().reverse().forEach(function (e) {
+    html += '<span class="ts">' + fmtTime(e.ts) + "</span>\n";
     if (e.ok) {
       var hex = e.result.hex;
       var badSet = corruptedByteSet(e.result.corrupted);
@@ -77,204 +297,57 @@ function renderListenLog(entries) {
       html += coloredRowHtml(rows[0], badSet) + "\n";
       html += coloredRowHtml(rows[1], badSet) + "\n";
       if (e.result.corrupted && e.result.corrupted.length) {
-        html += "  (corrupted bits: " + escapeHtml(JSON.stringify(e.result.corrupted)) + ")\n";
+        html += '<span class="tone-bad">  (corrupted bits: ' + escapeHtml(JSON.stringify(e.result.corrupted)) + ")</span>\n";
       }
       if (!e.result.found_end) {
-        html += "  (no end-of-frame marker found -- possibly truncated)\n";
+        html += '<span class="tone-bad">  (no end-of-frame marker -- possibly truncated)</span>\n';
       }
     } else {
-      html += "  DECODE FAILED: " + escapeHtml(e.error) + "\n";
+      html += '<span class="tone-bad">  DECODE FAILED: ' + escapeHtml(e.error) + "</span>\n";
     }
     html += "\n";
   });
-  box.innerHTML = html;
-  box.scrollTop = box.scrollHeight;
+  $("#listen-log").innerHTML = html || '<span class="log-empty">-- NO SIGNALS --</span>';
 }
+
+// ---- Shared poll ------------------------------------------------------------
+// One poll feeds every view and Echo Mode, whichever screen is showing.
+
+var rxSeen = null;   // index into the received log already handled by Echo Mode
+var polling = false;
+
+function pollLogs() {
+  if (polling) return;
+  polling = true;
+  Promise.all([getJson("/api/sent-log"), getJson("/api/listen/log")]).then(function (res) {
+    var sent = res[0], received = res[1];
+    // Only react to messages that arrive after the page loaded.
+    if (rxSeen === null) rxSeen = received.length;
+    for (; rxSeen < received.length; rxSeen++) handleEcho(received[rxSeen]);
+    renderStationLog(sent, received);
+    renderSentLog(sent);
+    renderListenLog(received);
+  }).catch(function () { /* server restarting -- try again next tick */ })
+    .finally(function () { polling = false; });
+}
+
+// ---- Settings ---------------------------------------------------------------
 
 function loadSettingsIntoForm(s) {
+  var num = function (v, d) { return (v === null || v === undefined) ? d : v; };
   $("#set-device").value = s.device || "";
   $("#set-ptt-serial").value = s.ptt_serial || "";
-  $("#set-ptt-pin").value = (s.ptt_pin === null || s.ptt_pin === undefined) ? "" : s.ptt_pin;
-  $("#set-ptt-delay").value = (s.ptt_delay === null || s.ptt_delay === undefined) ? 0.5 : s.ptt_delay;
-  $("#set-ptt-tail-delay").value = (s.ptt_tail_delay === null || s.ptt_tail_delay === undefined) ? 0.5 : s.ptt_tail_delay;
-  $("#sc-sender").value = s.station_sender || "";
-  $("#sc-receiver").value = s.station_receiver || "";
-  $("#vb-station").value = s.volleyball_station || "";
+  $("#set-ptt-pin").value = num(s.ptt_pin, "");
+  $("#set-ptt-delay").value = num(s.ptt_delay, 0.5);
+  $("#set-ptt-tail-delay").value = num(s.ptt_tail_delay, 0.5);
+  if (document.activeElement !== $("#sc-sender")) $("#sc-sender").value = s.station_sender || "";
+  if (document.activeElement !== $("#sc-receiver")) $("#sc-receiver").value = s.station_receiver || "";
 }
 
-function refreshSentLog() {
-  fetch("/api/sent-log").then(function (r) { return r.json(); }).then(renderSentLog);
-}
-
-function postJson(url, body) {
-  return fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  }).then(function (r) { return r.json(); });
-}
-
-// ---- Shared listening state --------------------------------------------
-// There is exactly one physical receiver, so "listening" is one boolean
-// shared by the Listen tab, Station COMS, and Volleyball -- whichever
-// button is clicked updates all three so they never show conflicting state.
-
-var isListening = false;
-
-function setListeningUI(listening) {
-  isListening = listening;
-  [$("#listen-btn"), $("#sc-listen-btn"), $("#vb-listen-btn")].forEach(function (btn) {
-    if (!btn) return;
-    btn.dataset.listening = listening ? "true" : "false";
-    btn.textContent = listening ? "Stop" : "Listen";
-    btn.classList.toggle("is-danger", listening);
-    btn.classList.toggle("is-primary", !listening);
-  });
-}
-
-function toggleListen() {
-  if (isListening) {
-    return fetch("/api/listen/stop", { method: "POST" }).then(function (r) { return r.json(); })
-      .then(function () { setListeningUI(false); });
-  }
-  return fetch("/api/listen/start", { method: "POST" }).then(function (r) { return r.json(); })
-    .then(function (result) {
-      if (result.error) { alert(result.error); return; }
-      setListeningUI(true);
-    });
-}
-
-// Stop listening (ignored if already stopped), send `text`, and optionally
-// restart listening afterward. Shared by Station COMS's Transmit and
-// Volleyball's Start/auto-reply -- both need "stop, send, resume" so the
-// transmitter and receiver never fight over the same audio device.
-function txCycle(text, restart) {
-  return fetch("/api/listen/stop", { method: "POST" })
-    .then(function () { return postJson("/api/send", { text: text }); })
-    .then(function (result) {
-      if (restart) {
-        return fetch("/api/listen/start", { method: "POST" }).then(function () {
-          setListeningUI(true);
-          return result;
-        });
-      }
-      setListeningUI(false);
-      return result;
-    });
-}
-
-// ---- Station COMS --------------------------------------------------------
-// Wire format: "SENDER>RECEIVER:MESSAGE" (one zsignal text payload carrying
-// all three UI fields; RECEIVER may be "CQ" for all-stations).
-
-function parseStationMessage(text) {
-  var gt = text.indexOf(">");
-  if (gt < 0) return null;
-  var sender = text.slice(0, gt);
-  var rest = text.slice(gt + 1);
-  var colon = rest.indexOf(":");
-  if (colon < 0) return null;
-  var receiver = rest.slice(0, colon);
-  var message = rest.slice(colon + 1);
-  if (!sender || !receiver) return null;
-  return { sender: sender, receiver: receiver, message: message };
-}
-
-function addLogRow(tbody, ts, sender, receiver, message) {
-  var tr = document.createElement("tr");
-  [fmtTime(ts), sender || "", receiver || "", message].forEach(function (text) {
-    var td = document.createElement("td");
-    td.textContent = text;
-    tr.appendChild(td);
-  });
-  tbody.appendChild(tr);
-  var wrap = tbody.closest(".log-table-wrap");
-  if (wrap) wrap.scrollTop = wrap.scrollHeight;
-}
-
-function cleanDecode(e) {
-  return e.ok && e.result.found_end && !(e.result.corrupted && e.result.corrupted.length);
-}
-
-function handleStationComsEntry(e) {
-  if (!cleanDecode(e)) return;
-  var text = e.result.text;
-  var parsed = parseStationMessage(text);
-  addLogRow($("#sc-log-body"), e.ts,
-    parsed ? parsed.sender : "", parsed ? parsed.receiver : "", parsed ? parsed.message : text);
-}
-
-function saveStationComsFields() {
-  postJson("/api/settings", {
-    station_sender: $("#sc-sender").value,
-    station_receiver: $("#sc-receiver").value
-  });
-}
-
-// ---- Volleyball -----------------------------------------------------------
-// "{station}: serves." / "{station}: Good Game." / "{A}:{B}: bump. set. spike."
-// The bump/set/spike reply is a verbatim echo of whatever was received --
-// the two station names inside it never change after the first reply, which
-// is what makes it bounce back and forth unchanged, like a volleyball
-// rally, until someone clicks Stop.
-
-var SERVE_RE = /^(\S+): serves\.$/;
-var BUMP_RE = /^(\S+):(\S+): bump\. set\. spike\.$/;
-
-var vbPendingTimer = null;
-
-function volleyballRowFields(text) {
-  var m;
-  if ((m = text.match(SERVE_RE))) return { sender: m[1], receiver: "" };
-  if ((m = text.match(BUMP_RE))) return { sender: m[1], receiver: m[2] };
-  return { sender: "", receiver: "" };
-}
-
-function handleVolleyballEntry(e) {
-  if (!cleanDecode(e)) return;
-  var text = e.result.text;
-  var fields = volleyballRowFields(text);
-  addLogRow($("#vb-log-body"), e.ts, fields.sender, fields.receiver, text);
-
-  if (vbPendingTimer) return; // a reply is already scheduled -- don't stack another
-  var station = ($("#vb-station").value || "").toUpperCase();
-  var m;
-  if ((m = text.match(SERVE_RE)) && m[1] !== station) {
-    var served = m[1];
-    vbPendingTimer = setTimeout(function () {
-      vbPendingTimer = null;
-      txCycle(station + ":" + served + ": bump. set. spike.", true);
-    }, 2000);
-  } else if (BUMP_RE.test(text)) {
-    vbPendingTimer = setTimeout(function () {
-      vbPendingTimer = null;
-      txCycle(text, true); // echo back unchanged
-    }, 2000);
-  }
-}
-
-function saveVolleyballField() {
-  postJson("/api/settings", { volleyball_station: $("#vb-station").value });
-}
-
-// ---- Shared decode-log poll ------------------------------------------------
-// One poller feeds the raw hex dump (Listen tab), Station COMS's table, and
-// Volleyball's table/auto-reply -- all three read the same decoded stream,
-// and this keeps running regardless of which tab is currently visible so a
-// Volleyball rally or a Station COMS listen session survives a tab switch.
-
-var scLastIndex = 0;
-var vbLastIndex = 0;
-
-function pollListenLog() {
-  fetch("/api/listen/log").then(function (r) { return r.json(); }).then(function (entries) {
-    renderListenLog(entries);
-    for (; scLastIndex < entries.length; scLastIndex++) {
-      handleStationComsEntry(entries[scLastIndex]);
-    }
-    for (; vbLastIndex < entries.length; vbLastIndex++) {
-      handleVolleyballEntry(entries[vbLastIndex]);
-    }
+function saveStationFields() {
+  return postJson("/api/settings", {
+    station_sender: $("#sc-sender").value.toUpperCase(),
+    station_receiver: $("#sc-receiver").value.toUpperCase()
   });
 }
 
@@ -286,74 +359,64 @@ function forceUppercase(el) {
   });
 }
 
-document.addEventListener("DOMContentLoaded", function () {
-  setupTabs();
-  refreshSentLog();
-  setInterval(pollListenLog, 1000);
+function busy(btn, on) {
+  btn.classList.toggle("is-busy", on);
+  btn.disabled = on;
+}
 
-  fetch("/api/settings").then(function (r) { return r.json(); }).then(loadSettingsIntoForm);
-  fetch("/api/listen/status").then(function (r) { return r.json(); }).then(function (s) {
-    setListeningUI(!!s.listening);
+// ---- Wire up ----------------------------------------------------------------
+
+document.addEventListener("DOMContentLoaded", function () {
+  setupNav();
+  getJson("/api/settings").then(loadSettingsIntoForm);
+  getJson("/api/listen/status").then(function (s) { setListeningUI(!!s.listening); });
+  pollLogs();
+  setInterval(pollLogs, 1000);
+
+  ["sc-sender", "sc-receiver"].forEach(function (id) {
+    var el = document.getElementById(id);
+    forceUppercase(el);
+    el.addEventListener("change", saveStationFields);
   });
 
-  ["sc-sender", "sc-receiver", "vb-station"].forEach(function (id) {
-    forceUppercase(document.getElementById(id));
+  $all(".listen-toggle").forEach(function (b) { b.addEventListener("click", toggleListen); });
+  $("#echo-btn").addEventListener("click", toggleEcho);
+
+  $("#sc-clear-btn").addEventListener("click", function () {
+    clearedAt = Date.now() / 1000;
+    try { localStorage.setItem(CLEAR_KEY, String(clearedAt)); } catch (e) { /* storage blocked */ }
+    pollLogs();
+  });
+
+  $("#sc-transmit-btn").addEventListener("click", function () {
+    var sender = mySender();
+    var receiver = ($("#sc-receiver").value || "").trim().toUpperCase();
+    var message = $("#sc-message").value || "";
+    if (!sender || !receiver || !message.trim()) {
+      alert("SENDER, RECEIVER and MESSAGE are all required.");
+      return;
+    }
+    saveStationFields();
+    var btn = $("#sc-transmit-btn");
+    busy(btn, true);
+    queueTx(sender + ">" + receiver + ":" + message, true).then(function (r) {
+      if (r && r.error) alert("Transmit failed: " + r.error);
+      else $("#sc-message").value = "";
+    }).catch(function (err) {
+      alert("Transmit failed: " + err.message);
+    }).finally(function () { busy(btn, false); });
   });
 
   $("#send-btn").addEventListener("click", function () {
     var text = $("#send-text").value;
     if (!text) return;
     var btn = $("#send-btn");
-    btn.classList.add("is-loading");
-    postJson("/api/send", { text: text }).then(function (result) {
-      btn.classList.remove("is-loading");
-      if (result.error) { alert("Send failed: " + result.error); }
-      refreshSentLog();
+    busy(btn, true);
+    queueTx(text, false).then(function (r) {
+      if (r && r.error) alert("Send failed: " + r.error);
     }).catch(function (err) {
-      btn.classList.remove("is-loading");
-      alert("Send failed: " + err);
-    });
-  });
-
-  $("#listen-btn").addEventListener("click", toggleListen);
-  $("#sc-listen-btn").addEventListener("click", toggleListen);
-  $("#vb-listen-btn").addEventListener("click", toggleListen);
-
-  $("#sc-clear-btn").addEventListener("click", function () { $("#sc-log-body").innerHTML = ""; });
-  $("#vb-clear-btn").addEventListener("click", function () { $("#vb-log-body").innerHTML = ""; });
-
-  $("#sc-transmit-btn").addEventListener("click", function () {
-    var sender = ($("#sc-sender").value || "").toUpperCase();
-    var receiver = ($("#sc-receiver").value || "").toUpperCase();
-    var message = $("#sc-message").value || "";
-    if (!sender || !receiver || !message) {
-      alert("Sender, Receiver, and Message are all required.");
-      return;
-    }
-    saveStationComsFields();
-    var btn = $("#sc-transmit-btn");
-    btn.classList.add("is-loading");
-    txCycle(sender + ">" + receiver + ":" + message, true).then(function (result) {
-      btn.classList.remove("is-loading");
-      if (result && result.error) alert("Transmit failed: " + result.error);
-    }).catch(function (err) {
-      btn.classList.remove("is-loading");
-      alert("Transmit failed: " + err);
-    });
-  });
-
-  $("#vb-start-btn").addEventListener("click", function () {
-    var station = ($("#vb-station").value || "").toUpperCase();
-    if (!station) { alert("Station is required."); return; }
-    saveVolleyballField();
-    txCycle(station + ": serves.", true).catch(function (err) { alert("Start failed: " + err); });
-  });
-
-  $("#vb-stop-btn").addEventListener("click", function () {
-    var station = ($("#vb-station").value || "").toUpperCase();
-    if (!station) { alert("Station is required."); return; }
-    if (vbPendingTimer) { clearTimeout(vbPendingTimer); vbPendingTimer = null; }
-    txCycle(station + ": Good Game.", false).catch(function (err) { alert("Stop failed: " + err); });
+      alert("Send failed: " + err.message);
+    }).finally(function () { busy(btn, false); });
   });
 
   $("#save-settings-btn").addEventListener("click", function () {
@@ -367,8 +430,8 @@ document.addEventListener("DOMContentLoaded", function () {
     postJson("/api/settings", body).then(function (s) {
       loadSettingsIntoForm(s);
       var msg = $("#settings-saved");
-      msg.style.display = "block";
-      setTimeout(function () { msg.style.display = "none"; }, 1500);
+      msg.hidden = false;
+      setTimeout(function () { msg.hidden = true; }, 1500);
     });
   });
 });

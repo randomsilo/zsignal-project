@@ -188,8 +188,8 @@ Implemented as a pure standard-library Python package (`zsignal/`) — no numpy/
 | `live_listen.py` | Continuous capture + silence-gap segmentation for streaming/live decode (used by zsignal-web) |
 | `cli.py` / `__main__.py` | `python -m zsignal` command-line entry point |
 
-`zsignal-web` (a browser UI, including the Station COMS and Volleyball
-screens) and `zsignal-receiver` (the Orange Pi relay service) are separate
+`zsignal-web` (a browser UI, including the Station screen and Echo
+Mode) and `zsignal-receiver` (the Orange Pi relay service) are separate
 projects that import this package directly — see their own READMEs. Both
 run via Docker; run `./setup.sh` once on a new box to check for/install
 Docker and the other host dependencies, then `docker compose up -d
