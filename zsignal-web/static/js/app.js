@@ -203,30 +203,12 @@ var clearedAt = 0;
 try { clearedAt = parseFloat(localStorage.getItem(CLEAR_KEY)) || 0; } catch (e) { /* storage blocked */ }
 
 function logLineHtml(item) {
-  var body, tag = item.kind.toUpperCase(), cls = item.kind;
-  if (item.damaged) {
-    // Show the payload byte-for-byte with flagged bytes in red -- splitting
-    // out SENDER>RECEIVER could be wrong when those bytes are the bad ones.
-    var e = item.entry, badSet = corruptedByteSet(e.result.corrupted);
-    var row = textRow(e.result.hex), out = "";
-    for (var i = 0; i < row.length; i++) {
-      out += badSet[i] ? '<span class="bad">' + escapeHtml(row[i]) + "</span>" : escapeHtml(row[i]);
-    }
-    var notes = [];
-    var n = Object.keys(badSet).length;
-    if (n) notes.push(n + " BAD BYTE" + (n === 1 ? "" : "S"));
-    if (!e.result.found_end) notes.push("TRUNCATED?");
-    body = out + ' <span class="note">[' + notes.join(", ") + "]</span>";
-    tag = "RX?";
-    cls += " damaged";
-  } else {
-    var p = parseStationMessage(item.text);
-    body = p
-      ? '<span class="tag">' + escapeHtml(p.sender + ">" + p.receiver) + "</span> " + escapeHtml(p.message)
-      : escapeHtml(item.text);
-  }
-  return '<div class="log-line ' + cls + '"><span class="ts">' + fmtTime(item.ts) + "</span> " +
-         '<span class="tag">' + tag + "</span> " + body + "</div>";
+  var p = parseStationMessage(item.text);
+  var body = p
+    ? '<span class="tag">' + escapeHtml(p.sender + ">" + p.receiver) + "</span> " + escapeHtml(p.message)
+    : escapeHtml(item.text);
+  return '<div class="log-line ' + item.kind + '"><span class="ts">' + fmtTime(item.ts) + "</span> " +
+         '<span class="tag">' + item.kind.toUpperCase() + "</span> " + body + "</div>";
 }
 
 var lastStationKey = "";
@@ -235,8 +217,9 @@ function renderStationLog(sent, received) {
   var items = [];
   sent.forEach(function (e) { items.push({ kind: "tx", ts: e.ts, text: e.text }); });
   received.forEach(function (e) {
-    // Damaged decodes are shown (marked RX?); outright failures are just noise.
-    if (e.ok) items.push({ kind: "rx", ts: e.ts, text: e.result.text, entry: e, damaged: !cleanDecode(e) });
+    // Any decoded message, even one with flagged bytes (details are on the
+    // LISTEN screen); outright decode failures are just noise.
+    if (e.ok) items.push({ kind: "rx", ts: e.ts, text: e.result.text });
   });
   items = items.filter(function (i) { return i.ts > clearedAt; });
   items.sort(function (a, b) { return b.ts - a.ts; });
